@@ -1,0 +1,84 @@
+[project]
+name = "kortexa-ai-tts"
+version = "1.0.0"
+description = "Text-to-speech server with Qwen3-TTS VoiceDesign"
+authors = [
+    { name = "kortexa.ai", email = "francip@kortexa.ai" }
+]
+keywords = ["tts", "text-to-speech", "qwen3-tts", "voice-design", "fastapi", "streaming", "kortexa"]
+license = { text = "MIT" }
+readme = "README.md"
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "qwen-tts>=0.1.1",
+    "torch>=2.5.0",
+    "soundfile>=0.12",
+    "numpy>=1.26.0,<2.0.0",
+    "fastapi>=0.124.4",
+    "uvicorn[standard]>=0.38.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+    "black>=24.0.0",
+    "flake8>=7.0.0",
+    "mypy>=1.13.0",
+]
+# Flash attention for CUDA (reduces VRAM usage)
+flash = [
+    "flash-attn",
+]
+
+[project.urls]
+Homepage = "https://github.com/kortexa-ai/tts.server"
+Repository = "https://github.com/kortexa-ai/tts.server.git"
+Documentation = "https://github.com/kortexa-ai/tts.server#readme"
+"Bug Tracker" = "https://github.com/kortexa-ai/tts.server/issues"
+
+[project.scripts]
+"kortexa-tts" = "scripts.server:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.yml", "*.json"]
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
