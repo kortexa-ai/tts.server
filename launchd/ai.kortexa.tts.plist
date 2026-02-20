@@ -10,7 +10,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/francip/src/tts.server/run.sh</string>
+        <string>/Users/francip/src/tts.server/launchd/kortexa-tts.sh</string>
         <string>--dev</string>
     </array>
 
