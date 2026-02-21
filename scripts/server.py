@@ -71,12 +71,8 @@ def main():
     # Extend uvicorn logging config
     log_config = copy.deepcopy(UVICORN_LOGGING_CONFIG)
     loggers = log_config.setdefault("loggers", {})
-    for name in [
-        "kortexa",
-        "kortexa.tts",
-        "kortexa.tts.service",
-    ]:
-        loggers[name] = {"handlers": ["default"], "level": "INFO"}
+    # Only attach handler to the root namespace; child loggers propagate up
+    loggers["kortexa"] = {"handlers": ["default"], "level": "INFO", "propagate": False}
 
     # Set model in environment for the app factory to pick up
     os.environ["TTS_MODEL"] = args.model

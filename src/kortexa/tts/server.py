@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import numpy as np
+import torch
 from fastapi import FastAPI, HTTPException
 from fastapi import Body, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -98,6 +99,7 @@ def create_app(
         # VoiceDesign params
         instruct: str = Body("", description="Natural-language voice description"),
         language: str = Body("Auto", description="Language: English, Chinese, Auto, etc."),
+        seed: Optional[int] = Body(None, description="Random seed for reproducible voice generation"),
         format: str = Query("pcm16", pattern="^(wav|pcm16)$"),
         chunk_ms: int = Query(200, ge=20, le=1000),
     ):
@@ -106,6 +108,12 @@ def create_app(
 
         cleaned_text = text.strip()
         svc: TTSService = app.state.tts_service
+
+        # Set seed for reproducible voice generation across calls
+        if seed is not None:
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
 
         if cleaned_text.lower() == "__tone__":
             # Synthesize a 1kHz sine tone for 2 seconds to aid debugging
