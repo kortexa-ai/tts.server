@@ -21,39 +21,71 @@ if ! command -v uv &> /dev/null; then
     exit 1
 fi
 
-# Platform-specific setup
-if [[ "$OS" == "Linux" ]]; then
+UV_EXTRAS=()
+
+install_ffmpeg_macos() {
+    if command -v ffmpeg &> /dev/null; then
+        return
+    fi
+    if ! command -v brew &> /dev/null; then
+        echo "Homebrew is required to install ffmpeg on macOS."
+        exit 1
+    fi
+    echo "Installing ffmpeg via Homebrew..."
+    brew install ffmpeg
+}
+
+install_ffmpeg_ubuntu() {
+    if command -v ffmpeg &> /dev/null; then
+        return
+    fi
+    if ! command -v apt-get &> /dev/null; then
+        echo "Ubuntu setup expects apt-get for ffmpeg installation."
+        exit 1
+    fi
+    echo "Installing ffmpeg via apt-get..."
+    sudo apt-get update
+    sudo apt-get install -y ffmpeg
+}
+
+if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
+    echo "Configuring Apple Silicon environment with MLX-Audio."
+    install_ffmpeg_macos
+    UV_EXTRAS+=("mlx")
+elif [[ "$OS" == "Linux" ]]; then
+    echo "Configuring Ubuntu/Linux environment."
+    install_ffmpeg_ubuntu
+    UV_EXTRAS+=("cuda")
     if command -v nvidia-smi &> /dev/null; then
-        echo "NVIDIA GPU detected on Linux - will install with flash-attn support"
-        export UV_EXTRA="flash"
+        echo "NVIDIA GPU detected. Enabling flash-attn extra."
+        UV_EXTRAS+=("flash")
     else
-        echo "No NVIDIA GPU detected on Linux - installing CPU version"
+        echo "No NVIDIA GPU detected. CUDA endpoint path is still in development."
     fi
 else
-    echo "macOS detected - installing Metal/CPU version (no CUDA, no flash-attn)"
-    # sox is needed by qwen-tts on macOS
-    if ! command -v sox &> /dev/null; then
-        echo "Installing sox via Homebrew..."
-        brew install sox
-    fi
+    echo "Unsupported platform: $OS $ARCH"
+    exit 1
 fi
 
 uv venv
-if [[ -n "${UV_EXTRA:-}" ]]; then
-    uv sync --extra "$UV_EXTRA"
-else
-    uv sync
-fi
+SYNC_ARGS=()
+for extra in "${UV_EXTRAS[@]}"; do
+    SYNC_ARGS+=(--extra "$extra")
+done
+uv sync "${SYNC_ARGS[@]}"
 
 cat <<EOF
 
-Note: Qwen3-TTS model weights will be downloaded automatically on first use.
-To pre-download, run: uv run python -c "from qwen_tts import Qwen3TTSModel; Qwen3TTSModel.from_pretrained('Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign')"
+Setup complete.
 
-Setup complete!
 ----------------------------------------------------------------
 Run: ./run.sh                             # Starts server on port 4003 (prod)
      ./run.sh --dev                       # Starts with development env
      uv run kortexa-tts [--dev|--prod]    # Starts server manually
 ----------------------------------------------------------------
+
+Notes:
+- macOS Apple Silicon is the primary supported runtime today and uses MLX-Audio.
+- Linux/CUDA setup is scaffolded, but the OpenAI-style endpoint path there is still in development.
+- ffmpeg is required for MP3/AAC/Opus output.
 EOF

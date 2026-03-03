@@ -1,70 +1,82 @@
 from __future__ import annotations
 
-import io
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Literal
 
-import numpy as np
-import torch
-from fastapi import FastAPI, HTTPException
-from fastapi import Body, Query
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 
-from .service import TTSService
+from .service import (
+    DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_REPO,
+    STREAMING_RESPONSE_FORMAT,
+    TTSService,
+)
 
 logger = logging.getLogger("kortexa.tts")
 
 
-def create_app(
-    root_path: Optional[str] = None,
-    model_name: Optional[str] = None,
-    max_concurrent_inference: Optional[int] = None,
-) -> FastAPI:
-    """Create and configure the FastAPI application."""
-    if model_name is None:
-        model_name = os.environ.get("TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
-    if max_concurrent_inference is None:
-        try:
-            max_concurrent_inference = int(
-                os.environ.get("TTS_MAX_CONCURRENT_INFERENCE", "1")
-            )
-        except ValueError:
-            max_concurrent_inference = 1
+class VoiceReference(BaseModel):
+    id: str
 
-    # Set up logging
+
+class SpeechRequest(BaseModel):
+    model: str = Field(..., description="Model id from GET /v1/models")
+    input: str = Field(..., min_length=1, max_length=4096)
+    voice: str | VoiceReference
+    instructions: str | None = Field(default=None, max_length=4096)
+    response_format: Literal["mp3", "wav", "flac", "pcm", "aac", "opus"] | None = None
+    speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    stream_format: Literal["audio", "sse"] | None = None
+
+
+def error_payload(message: str, error_type: str) -> dict:
+    return {
+        "error": {
+            "message": message,
+            "type": error_type,
+            "param": None,
+            "code": None,
+        }
+    }
+
+
+def create_app(
+    root_path: str | None = None,
+    model_id: str | None = None,
+    model_repo: str | None = None,
+) -> FastAPI:
+    if model_id is None:
+        model_id = os.environ.get("TTS_MODEL_ID", DEFAULT_MODEL_ID)
+    if model_repo is None:
+        model_repo = os.environ.get("TTS_MODEL_REPO", DEFAULT_MODEL_REPO)
+
     for name in ("kortexa", "kortexa.tts", "kortexa.tts.service"):
         logging.getLogger(name).setLevel(logging.INFO)
 
-    # Create service
-    tts_service = TTSService(
-        model_name=model_name,
-        max_concurrent_inference=max_concurrent_inference,
-    )
+    tts_service = TTSService(model_id=model_id, model_repo=model_repo)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Startup: load model
-        print(f"Loading TTS model: {model_name}")
+        logger.info("Loading TTS service (model=%s repo=%s)", model_id, model_repo)
         tts_service.load_model()
         app.state.tts_service = tts_service
-        print("TTS server started")
         yield
-        # Shutdown: clean up
-        print("Shutting down, unloading model...")
         tts_service.unload_model()
-        print("Model unloaded")
 
     app = FastAPI(
         title="Kortexa TTS Server",
-        description="Text-to-speech with Qwen3-TTS VoiceDesign",
+        description="OpenAI-compatible text-to-speech API backed by MLX-Audio.",
         root_path=root_path or "",
         lifespan=lifespan,
     )
 
-    # CORS middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -73,101 +85,164 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(_request: Request, exc: HTTPException):
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        error_type = "server_error" if exc.status_code >= 500 else "invalid_request_error"
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_payload(detail, error_type),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+        message = "; ".join(
+            f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}"
+            for err in exc.errors()
+        )
+        return JSONResponse(
+            status_code=400,
+            content=error_payload(message, "invalid_request_error"),
+        )
+
+    @app.exception_handler(ValueError)
+    async def value_error_handler(_request: Request, exc: ValueError):
+        return JSONResponse(
+            status_code=400,
+            content=error_payload(str(exc), "invalid_request_error"),
+        )
+
+    @app.exception_handler(RuntimeError)
+    async def runtime_exception_handler(_request: Request, exc: RuntimeError):
+        return JSONResponse(
+            status_code=503,
+            content=error_payload(str(exc), "service_unavailable"),
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(_request: Request, exc: Exception):
+        logger.exception("Unhandled exception")
+        return JSONResponse(
+            status_code=500,
+            content=error_payload(str(exc), "server_error"),
+        )
+
     @app.get("/", response_class=JSONResponse)
     async def index():
         return {
             "name": app.title,
-            "version": "1.0",
-            "endpoints": ["GET /health", "POST /tts"],
+            "version": "2.0.0",
+            "endpoints": [
+                "GET /health",
+                "GET /v1/models",
+                "GET /v1/voices",
+                "POST /v1/audio/speech",
+            ],
         }
 
     @app.get("/health", response_class=JSONResponse)
     async def health():
         svc: TTSService = app.state.tts_service
+        return svc.health()
+
+    @app.get("/v1/models", response_class=JSONResponse)
+    async def list_models():
+        svc: TTSService = app.state.tts_service
+        return {"object": "list", "data": svc.list_models()}
+
+    @app.get("/v1/voices", response_class=JSONResponse)
+    async def list_voices():
+        svc: TTSService = app.state.tts_service
+        svc.ensure_ready()
         return {
-            "status": "ok",
-            "model_id": svc.model_name,
-            "device": svc.device,
-            "sample_rate": svc.sample_rate,
+            "object": "list",
+            "data": svc.list_voices(),
+            "default_voice": svc.default_voice.id if svc.default_voice else None,
         }
 
-    @app.post("/tts")
-    async def tts(
-        text: str = Body(..., embed=True),
-        # voice.server compat: accepted but unused (VoiceDesign doesn't use speaker IDs)
-        speaker_id: int = Body(0),
-        # VoiceDesign params
-        instruct: str = Body("", description="Natural-language voice description"),
-        language: str = Body("Auto", description="Language: English, Chinese, Auto, etc."),
-        seed: Optional[int] = Body(None, description="Random seed for reproducible voice generation"),
-        format: str = Query("pcm16", pattern="^(wav|pcm16)$"),
-        chunk_ms: int = Query(200, ge=20, le=1000),
-    ):
-        if not text or not text.strip():
-            raise HTTPException(status_code=400, detail="Text must be non-empty")
-
-        cleaned_text = text.strip()
+    @app.post("/v1/audio/speech")
+    async def create_speech(payload: SpeechRequest):
         svc: TTSService = app.state.tts_service
+        text = payload.input.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="`input` cannot be blank")
 
-        # Set seed for reproducible voice generation across calls
-        if seed is not None:
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(seed)
+        svc.ensure_model(payload.model)
+        voice = svc.resolve_voice(payload.voice)
 
-        if cleaned_text.lower() == "__tone__":
-            # Synthesize a 1kHz sine tone for 2 seconds to aid debugging
-            sr = svc.sample_rate
-            duration_s = 2.0
-            t = np.linspace(0, duration_s, int(sr * duration_s), endpoint=False)
-            audio = (0.2 * np.sin(2 * np.pi * 1000 * t)).astype(np.float32)
-        else:
-            audio, sr = await svc.synthesize(
-                cleaned_text,
-                instruct=instruct,
-                language=language,
+        response_format = payload.response_format
+        if response_format is None:
+            response_format = (
+                STREAMING_RESPONSE_FORMAT if payload.stream_format else "mp3"
             )
 
-        if len(audio):
-            min_val = float(np.min(audio))
-            max_val = float(np.max(audio))
-        else:
-            min_val = max_val = 0.0
-        print(f"[tts] generated {len(audio)} samples at {sr} Hz (min={min_val:.4f}, max={max_val:.4f})")
+        if payload.stream_format and response_format != STREAMING_RESPONSE_FORMAT:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Streaming currently supports "
+                    f"`response_format=\"{STREAMING_RESPONSE_FORMAT}\"` only."
+                ),
+            )
 
-        if format == "pcm16":
-            # Convert float32 [-1,1] to little-endian PCM16
-            pcm = np.clip(audio, -1.0, 1.0)
-            scaled = np.clip(pcm * 32767.0, -32768.0, 32767.0)
-            pcm16 = scaled.astype("<i2")
-            raw = pcm16.tobytes()
-            chunk_bytes = max(1, int(sr * (chunk_ms / 1000.0)) * 2)
+        if payload.stream_format == "audio":
+            return StreamingResponse(
+                svc.stream_audio_bytes(
+                    text=text,
+                    voice=voice,
+                    instructions=payload.instructions or "",
+                    speed=payload.speed,
+                    response_format=response_format,
+                ),
+                media_type=svc.media_type_for_format(response_format),
+                headers={
+                    "Content-Disposition": f'attachment; filename="speech.{response_format}"',
+                    "x-model-id": svc.model_id,
+                    "x-voice-id": voice.id,
+                    "x-sample-rate": str(svc.sample_rate),
+                },
+            )
 
-            def pcm_stream():
-                mv = memoryview(raw)
-                for offset in range(0, len(mv), chunk_bytes):
-                    yield bytes(mv[offset : offset + chunk_bytes])
+        if payload.stream_format == "sse":
+            return StreamingResponse(
+                svc.stream_sse(
+                    text=text,
+                    voice=voice,
+                    instructions=payload.instructions or "",
+                    speed=payload.speed,
+                    response_format=response_format,
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "x-model-id": svc.model_id,
+                    "x-voice-id": voice.id,
+                    "x-sample-rate": str(svc.sample_rate),
+                },
+            )
 
-            headers = {
-                "x-audio-format": "pcm16",
-                "x-sample-rate": str(sr),
-                "x-channels": "1",
-                "x-chunk-ms": str(chunk_ms),
-            }
-            return StreamingResponse(pcm_stream(), media_type="audio/L16", headers=headers)
-
-        if format == "wav":
-            import soundfile as sf
-
-            buf = io.BytesIO()
-            sf.write(buf, audio.astype(np.float32), sr, format="WAV", subtype="PCM_16")
-            buf.seek(0)
-            return StreamingResponse(buf, media_type="audio/wav")
-
-        raise HTTPException(status_code=400, detail="Unsupported format")
+        audio, sample_rate = await asyncio.get_running_loop().run_in_executor(
+            None,
+            lambda: svc.synthesize(
+                text=text,
+                voice=voice,
+                instructions=payload.instructions or "",
+                speed=payload.speed,
+            ),
+        )
+        body = svc.encode_audio(audio, response_format)
+        return Response(
+            content=body,
+            media_type=svc.media_type_for_format(response_format),
+            headers={
+                "Content-Disposition": f'attachment; filename="speech.{response_format}"',
+                "x-model-id": svc.model_id,
+                "x-voice-id": voice.id,
+                "x-sample-rate": str(sample_rate),
+            },
+        )
 
     return app
 
 
-# Default app for uvicorn
 app = create_app()

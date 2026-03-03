@@ -1,11 +1,11 @@
 [project]
 name = "kortexa-ai-tts"
-version = "1.0.0"
-description = "Text-to-speech server with Qwen3-TTS VoiceDesign"
+version = "2.0.0"
+description = "OpenAI-compatible text-to-speech server with MLX-Audio"
 authors = [
     { name = "kortexa.ai", email = "francip@kortexa.ai" }
 ]
-keywords = ["tts", "text-to-speech", "qwen3-tts", "voice-design", "fastapi", "streaming", "kortexa"]
+keywords = ["tts", "text-to-speech", "openai-compatible", "mlx-audio", "qwen3-tts", "custom-voice", "fastapi", "streaming", "kortexa"]
 license = { text = "MIT" }
 readme = "README.md"
 classifiers = [
@@ -19,12 +19,9 @@ classifiers = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "qwen-tts>=0.1.1",
-    "torch>=2.5.0",
-    "soundfile>=0.12",
-    "numpy>=1.26.0,<2.0.0",
-    "fastapi>=0.124.4",
-    "uvicorn[standard]>=0.38.0",
+    "numpy>=1.26.0,<3.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +36,13 @@ dev = [
 flash = [
     "flash-attn",
 ]
+mlx = [
+    "mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git ; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+cuda = [
+    "qwen-tts>=0.1.1",
+    "torch>=2.5.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/kortexa-ai/tts.server"
@@ -47,7 +51,7 @@ Documentation = "https://github.com/kortexa-ai/tts.server#readme"
 "Bug Tracker" = "https://github.com/kortexa-ai/tts.server/issues"
 
 [project.scripts]
-"kortexa-tts" = "scripts.server:main"
+"kortexa-tts" = "kortexa.tts.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -58,6 +62,14 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.yml", "*.json"]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "mlx" },
+        { extra = "cuda" },
+    ],
+]
 
 [tool.black]
 line-length = 88

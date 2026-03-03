@@ -21,7 +21,8 @@ echo "Running on OS: $OS"
 HOST=${HOST:-0.0.0.0}
 PORT=${PORT:-4003}
 TTS_ENV=${TTS_ENV:-production}
-MODEL=${MODEL:-Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign}
+TTS_MODEL_ID=${TTS_MODEL_ID:-qwen3-tts-customvoice-1.7b}
+TTS_MODEL_REPO=${TTS_MODEL_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16}
 
 PASS_MODE_FLAG=""
 RELOAD_FLAG=""
@@ -40,8 +41,12 @@ while [[ $# -gt 0 ]]; do
       PASS_MODE_FLAG="--prod"
       shift
       ;;
-    --model)
-      MODEL="$2"
+    --model-id)
+      TTS_MODEL_ID="$2"
+      shift 2
+      ;;
+    --model-repo)
+      TTS_MODEL_REPO="$2"
       shift 2
       ;;
     *)
@@ -52,7 +57,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Starting Kortexa TTS server ($TTS_ENV)..."
-echo "Model: $MODEL"
+echo "Model ID: $TTS_MODEL_ID"
+echo "Model repo: $TTS_MODEL_REPO"
 
 # We don't quote EXTRA_ARGS to allow word splitting of multiple arguments
-uv run kortexa-tts --host "$HOST" --port "$PORT" --model "$MODEL" $PASS_MODE_FLAG $RELOAD_FLAG $EXTRA_ARGS
+uv run kortexa-tts --host "$HOST" --port "$PORT" --model-id "$TTS_MODEL_ID" --model-repo "$TTS_MODEL_REPO" $PASS_MODE_FLAG $RELOAD_FLAG $EXTRA_ARGS

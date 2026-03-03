@@ -1,0 +1,116 @@
+# Kortexa TTS Server
+
+Small OpenAI-compatible text-to-speech server for macOS Apple Silicon using MLX-Audio.
+
+## Primary status
+
+- Primary backend: `mlx-audio`
+- Primary model repo: `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16`
+- Public model id: `qwen3-tts-customvoice-1.7b`
+- Linux/CUDA parity is still in development
+
+## Public HTTP interface
+
+- `GET /health`
+- `GET /v1/models`
+- `GET /v1/voices`
+- `POST /v1/audio/speech`
+
+## `GET /health`
+
+Returns:
+
+- `status`
+- `ready`
+- `backend`
+- `platform.system`
+- `platform.machine`
+- `model.id`
+- `model.repo`
+- `sample_rate`
+- `voice_count`
+- `default_voice`
+- `load_error`
+
+## `GET /v1/models`
+
+OpenAI-style model discovery.
+
+Returns one configured public model id.
+
+## `GET /v1/voices`
+
+Custom voice discovery endpoint.
+
+Top-level fields:
+
+- `object`
+- `default_voice`
+- `data`
+
+Each voice item includes:
+
+- `id`
+- `object`
+- `name`
+- `model`
+- `default`
+- `languages`
+
+Use `id` in `POST /v1/audio/speech`.
+Voice ids are lowercase stable identifiers and are accepted case-insensitively on input.
+
+## `POST /v1/audio/speech`
+
+Request JSON:
+
+- `model` string, required
+- `input` string, required, max 4096 chars
+- `voice` string or object `{ "id": "voice_id" }`, required
+- `instructions` string, optional
+- `response_format` string, optional
+- `speed` number, optional, range `0.25` to `4.0`
+- `stream_format` string, optional, `audio` or `sse`
+
+Supported `response_format` values:
+
+- `mp3`
+- `wav`
+- `flac`
+- `pcm`
+- `aac`
+- `opus`
+
+Notes:
+
+- Non-streaming default `response_format` is `mp3`
+- Streaming default `response_format` is `pcm`
+- Streaming currently supports `response_format="pcm"` only
+- Blank `input` is rejected with `400`
+
+## Streaming behavior
+
+`stream_format="audio"`:
+
+- HTTP chunked audio bytes
+- best paired with `response_format="pcm"`
+
+`stream_format="sse"`:
+
+- `text/event-stream`
+- emits `audio.chunk` messages with base64 PCM
+- ends with `audio.done`
+- also sets named SSE events: `audio.chunk` and `audio.done`
+
+## Setup notes
+
+- Run `./setup.sh`
+- macOS Apple Silicon installs MLX-Audio from GitHub and `ffmpeg`
+- Linux installs CUDA-side Python deps and `ffmpeg`, but the new API path is not ready there yet
+- OpenAPI is available at `/openapi.json` and `/docs`
+
+## Smoke test
+
+- `node tests/test.js --list-voices`
+- `node tests/test.js --voice aiden --format wav`
+- `node tests/test.js --voice aiden --stream --out tests/output/stream.pcm`
