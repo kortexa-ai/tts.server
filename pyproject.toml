@@ -43,6 +43,13 @@ cuda = [
     "qwen-tts>=0.1.1",
     "torch>=2.5.0",
 ]
+cuda-compat = [
+    "nvidia-cufft-cu12",
+    "nvidia-nccl-cu12",
+    "nvidia-nvshmem-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cuda-cupti-cu12",
+]
 
 [project.urls]
 Homepage = "https://github.com/kortexa-ai/tts.server"

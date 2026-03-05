@@ -57,8 +57,10 @@ elif [[ "$OS" == "Linux" ]]; then
     install_ffmpeg_ubuntu
     UV_EXTRAS+=("cuda")
     if command -v nvidia-smi &> /dev/null; then
-        echo "NVIDIA GPU detected. Enabling flash-attn extra."
-        UV_EXTRAS+=("flash")
+        echo "NVIDIA GPU detected. Adding cuda-compat libraries."
+        UV_EXTRAS+=("cuda-compat")
+        HAS_CUDA=true
+        # flash-attn skipped — difficult to build on Blackwell/aarch64
     else
         echo "No NVIDIA GPU detected. CUDA endpoint path is still in development."
     fi
@@ -67,12 +69,19 @@ else
     exit 1
 fi
 
+HAS_CUDA=${HAS_CUDA:-false}
+
 uv venv
 SYNC_ARGS=()
 for extra in "${UV_EXTRAS[@]}"; do
     SYNC_ARGS+=(--extra "$extra")
 done
 uv sync "${SYNC_ARGS[@]}"
+if [[ "$HAS_CUDA" == true ]]; then
+    # PyPI default torch on aarch64 is CPU-only; overwrite with CUDA torch from nightly index
+    echo "Installing PyTorch with CUDA support..."
+    uv pip install --reinstall --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+fi
 
 cat <<EOF
 

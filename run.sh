@@ -60,5 +60,5 @@ echo "Starting Kortexa TTS server ($TTS_ENV)..."
 echo "Model ID: $TTS_MODEL_ID"
 echo "Model repo: $TTS_MODEL_REPO"
 
-# We don't quote EXTRA_ARGS to allow word splitting of multiple arguments
-uv run kortexa-tts --host "$HOST" --port "$PORT" --model-id "$TTS_MODEL_ID" --model-repo "$TTS_MODEL_REPO" $PASS_MODE_FLAG $RELOAD_FLAG $EXTRA_ARGS
+# Use .venv/bin directly to avoid uv run re-resolving and downgrading CUDA torch to CPU
+exec .venv/bin/kortexa-tts --host "$HOST" --port "$PORT" --model-id "$TTS_MODEL_ID" --model-repo "$TTS_MODEL_REPO" $PASS_MODE_FLAG $RELOAD_FLAG $EXTRA_ARGS
