@@ -14,6 +14,7 @@ Small OpenAI-compatible text-to-speech server for macOS Apple Silicon using MLX-
 - `GET /health`
 - `GET /v1/models`
 - `GET /v1/voices`
+- `POST /v1/voices/reload`
 - `POST /v1/audio/speech`
 
 ## `GET /health`
@@ -101,6 +102,36 @@ Notes:
 - emits `audio.chunk` messages with base64 PCM
 - ends with `audio.done`
 - also sets named SSE events: `audio.chunk` and `audio.done`
+
+## `POST /v1/voices/reload`
+
+Re-scans `voices/` directory, loads new custom voices without restart.
+
+Returns `voice_count` and `custom_count`.
+
+## Voice Designer
+
+Standalone tool for creating custom TTS voices using the VoiceDesign model.
+
+Components:
+
+- `scripts/voice_designer.py` — FastAPI server on port 4010, loads VoiceDesign model
+- `client/` — Vite React app for auditioning and saving voices
+- `voices/` — saved `.wav` files, loaded by main server as additional voices
+
+Start both: `./design.sh`
+
+Voice Designer API (port 4010):
+
+- `POST /generate` — `{ instruct, text }` → audio sample
+- `POST /save` — `{ name, audio_b64 }` → saves to `voices/{name}.wav`
+- `GET /voices` — list saved voices
+- `GET /voices/{name}/audio` — serve saved voice audio
+- `DELETE /voices/{name}` — delete a voice
+
+Custom voices are stored as `.wav` files. At synthesis time, the speaker embedding is extracted from the saved audio (~50ms) and injected into the generation pipeline. Custom voice names are case-insensitive in the API.
+
+Each voice item in `GET /v1/voices` includes a `custom` boolean field indicating whether it is a built-in or custom voice.
 
 ## Setup notes
 

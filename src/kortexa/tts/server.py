@@ -136,6 +136,7 @@ def create_app(
                 "GET /health",
                 "GET /v1/models",
                 "GET /v1/voices",
+                "POST /v1/voices/reload",
                 "POST /v1/audio/speech",
             ],
         }
@@ -158,6 +159,17 @@ def create_app(
             "object": "list",
             "data": svc.list_voices(),
             "default_voice": svc.default_voice.id if svc.default_voice else None,
+        }
+
+    @app.post("/v1/voices/reload", response_class=JSONResponse)
+    async def reload_voices():
+        svc: TTSService = app.state.tts_service
+        svc.ensure_ready()
+        svc.reload_custom_voices()
+        return {
+            "status": "ok",
+            "voice_count": len(svc.supported_voices),
+            "custom_count": sum(1 for v in svc.supported_voices if v.is_custom),
         }
 
     @app.post("/v1/audio/speech")

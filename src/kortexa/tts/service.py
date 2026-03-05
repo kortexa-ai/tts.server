@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterator, Optional
 
 import numpy as np
@@ -23,10 +24,15 @@ SUPPORTED_RESPONSE_FORMATS = ("mp3", "wav", "flac", "pcm", "aac", "opus")
 STREAMING_RESPONSE_FORMAT = "pcm"
 
 
+VOICES_DIR = Path(__file__).parent.parent.parent.parent / "voices"
+
+
 @dataclass
 class VoiceInfo:
     id: str
     name: str
+    is_custom: bool = False
+    wav_path: str | None = None
 
 
 class TTSService:
@@ -103,11 +109,14 @@ class TTSService:
                 getattr(self.model, "get_supported_speakers", lambda: [])() or []
             )
             self._set_supported_voices(speakers)
+            self._load_custom_voices()
+            self._patch_ref_audio_injection()
             self.load_error = None
             self.mx.clear_cache()
             logger.info(
-                "MLX model loaded (voices=%d, languages=%d)",
+                "MLX model loaded (voices=%d, custom=%d, languages=%d)",
                 len(self.supported_voices),
+                sum(1 for v in self.supported_voices if v.is_custom),
                 len(self.supported_languages),
             )
         except Exception as exc:
@@ -134,6 +143,61 @@ class TTSService:
             lookup[voice.id] = voice
         self.supported_voices = voices
         self._voice_lookup = lookup
+
+    def _load_custom_voices(self) -> None:
+        """Scan voices/*.wav and register them as additional voices."""
+        if not VOICES_DIR.is_dir():
+            return
+        for wav in sorted(VOICES_DIR.glob("*.wav")):
+            voice_id = wav.stem.lower()
+            if voice_id in self._voice_lookup:
+                logger.warning("Custom voice '%s' conflicts with built-in, skipping", voice_id)
+                continue
+            voice = VoiceInfo(id=voice_id, name=wav.stem, is_custom=True, wav_path=str(wav))
+            self.supported_voices.append(voice)
+            self._voice_lookup[voice_id] = voice
+            logger.info("Loaded custom voice: %s", voice_id)
+
+    def reload_custom_voices(self) -> None:
+        """Re-scan voices directory for newly saved voices."""
+        # Remove existing custom voices
+        self.supported_voices = [v for v in self.supported_voices if not v.is_custom]
+        self._voice_lookup = {v.id: v for v in self.supported_voices}
+        self._load_custom_voices()
+
+    def _patch_ref_audio_injection(self) -> None:
+        """Monkey-patch _prepare_generation_inputs to support injected ref_audio."""
+        if self.model is None:
+            return
+        orig_prepare = self.model._prepare_generation_inputs
+        model = self.model
+        model._custom_ref_audio = None
+
+        def patched_prepare(text, language="auto", speaker=None, ref_audio=None, ref_text=None, instruct=None):
+            injected = model._custom_ref_audio
+            if injected is not None:
+                ref_audio = injected
+                speaker = None  # ref_audio takes priority
+            return orig_prepare(text, language, speaker, ref_audio=ref_audio, ref_text=ref_text, instruct=instruct)
+
+        model._prepare_generation_inputs = patched_prepare
+
+    def _load_voice_audio(self, voice: VoiceInfo):
+        """Load a custom voice's wav file as an mx array."""
+        import mlx.core as mx
+        from mlx_audio.audio_io import read as audio_read
+
+        audio, sr = audio_read(voice.wav_path)
+        if isinstance(audio, np.ndarray):
+            audio = mx.array(audio)
+        return audio
+
+    def _any_builtin_speaker(self) -> str:
+        """Return any built-in speaker name (needed as a placeholder for custom voice calls)."""
+        for v in self.supported_voices:
+            if not v.is_custom:
+                return v.name
+        return DEFAULT_VOICE_ID
 
     def ensure_ready(self) -> None:
         if self.ready:
@@ -206,6 +270,7 @@ class TTSService:
                 "name": voice.name,
                 "model": self.model_id,
                 "default": voice.id == default_voice,
+                "custom": voice.is_custom,
                 "languages": self.supported_languages,
             }
             for voice in self.supported_voices
@@ -249,15 +314,30 @@ class TTSService:
     ) -> tuple[np.ndarray, int]:
         self.ensure_ready()
         with self._inference_lock:
-            results = list(
-                self.model.generate_custom_voice(
-                    text=text,
-                    speaker=voice.name,
-                    language="auto",
-                    instruct=instructions or None,
-                    stream=False,
+            if voice.is_custom:
+                self.model._custom_ref_audio = self._load_voice_audio(voice)
+                try:
+                    results = list(
+                        self.model.generate_custom_voice(
+                            text=text,
+                            speaker=self._any_builtin_speaker(),
+                            language="auto",
+                            instruct=instructions or None,
+                            stream=False,
+                        )
+                    )
+                finally:
+                    self.model._custom_ref_audio = None
+            else:
+                results = list(
+                    self.model.generate_custom_voice(
+                        text=text,
+                        speaker=voice.name,
+                        language="auto",
+                        instruct=instructions or None,
+                        stream=False,
+                    )
                 )
-            )
         audio = self._apply_speed(self._collect_audio(results), speed)
         return audio, self.sample_rate
 
@@ -272,15 +352,30 @@ class TTSService:
     ) -> Iterator[np.ndarray]:
         self.ensure_ready()
         with self._inference_lock:
-            for result in self.model.generate_custom_voice(
-                text=text,
-                speaker=voice.name,
-                language="auto",
-                instruct=instructions or None,
-                stream=True,
-                streaming_interval=streaming_interval,
-            ):
-                yield self._apply_speed(self._to_numpy(result.audio), speed)
+            if voice.is_custom:
+                self.model._custom_ref_audio = self._load_voice_audio(voice)
+                try:
+                    for result in self.model.generate_custom_voice(
+                        text=text,
+                        speaker=self._any_builtin_speaker(),
+                        language="auto",
+                        instruct=instructions or None,
+                        stream=True,
+                        streaming_interval=streaming_interval,
+                    ):
+                        yield self._apply_speed(self._to_numpy(result.audio), speed)
+                finally:
+                    self.model._custom_ref_audio = None
+            else:
+                for result in self.model.generate_custom_voice(
+                    text=text,
+                    speaker=voice.name,
+                    language="auto",
+                    instruct=instructions or None,
+                    stream=True,
+                    streaming_interval=streaming_interval,
+                ):
+                    yield self._apply_speed(self._to_numpy(result.audio), speed)
 
     def encode_audio(self, audio: np.ndarray, response_format: str) -> bytes:
         response_format = response_format.lower()
