@@ -19,7 +19,7 @@ logger = logging.getLogger("kortexa.tts.service")
 
 DEFAULT_MODEL_ID = "qwen3-tts-customvoice-1.7b"
 DEFAULT_MODEL_REPO_MLX = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16"
-DEFAULT_MODEL_REPO_CUDA = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+DEFAULT_MODEL_REPO_CUDA = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 # Keep backward compatibility — default repo depends on platform
 DEFAULT_MODEL_REPO = DEFAULT_MODEL_REPO_MLX
 DEFAULT_VOICE_ID = "aiden"
@@ -180,7 +180,7 @@ class TTSService:
             self.model = Qwen3TTSModel.from_pretrained(
                 self.model_repo,
                 device_map=device,
-                torch_dtype=dtype,
+                dtype=dtype,
             )
             self.sample_rate = 24_000
 
@@ -448,35 +448,18 @@ class TTSService:
     def _synthesize_cuda(
         self, *, text: str, voice: VoiceInfo, instructions: str,
     ) -> np.ndarray:
-        if voice.is_custom:
-            # Custom voices on CUDA: try voice clone with x-vector only mode
-            try:
-                wavs, sr = self.model.generate_voice_clone(
-                    text=text,
-                    language="auto",
-                    ref_audio=voice.wav_path,
-                    x_vector_only_mode=True,
-                )
-            except ValueError:
-                # Model doesn't support voice cloning (not a base model) — fall back
-                # to a built-in speaker with a warning
-                logger.warning(
-                    "CUDA model does not support voice cloning; custom voice '%s' "
-                    "falling back to built-in speaker", voice.id,
-                )
-                wavs, sr = self.model.generate_custom_voice(
-                    text=text,
-                    speaker=self._any_builtin_speaker(),
-                    language="auto",
-                    instruct=instructions or None,
-                )
-        else:
-            wavs, sr = self.model.generate_custom_voice(
-                text=text,
-                speaker=voice.name,
-                language="auto",
-                instruct=instructions or None,
+        # CUDA uses Base model — all synthesis goes through voice cloning
+        if not voice.wav_path:
+            raise ValueError(
+                f"Voice '{voice.id}' has no reference audio. "
+                f"CUDA backend requires a WAV file in voices/ directory."
             )
+        wavs, sr = self.model.generate_voice_clone(
+            text=text,
+            language="auto",
+            ref_audio=voice.wav_path,
+            x_vector_only_mode=True,
+        )
         self.sample_rate = sr
         if wavs and len(wavs) > 0:
             return self._to_numpy(wavs[0])
