@@ -85,6 +85,8 @@ if [[ "$HAS_CUDA" == true ]]; then
     # PyPI default torch on aarch64 is CPU-only; overwrite with CUDA torch from nightly index
     echo "Installing PyTorch with CUDA support..."
     uv pip install --reinstall --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+    # CUDA torch drags in numpy 2.4 which breaks numba (via librosa via qwen-tts)
+    uv pip install 'numpy<2.4'
 fi
 
 cat <<EOF
