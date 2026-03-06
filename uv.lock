@@ -571,7 +571,7 @@ requires-dist = [
     { name = "flash-attn", marker = "extra == 'flash'" },
     { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", git = "https://github.com/Blaizzy/mlx-audio.git" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
-    { name = "numpy", specifier = ">=1.26.0,<3.0.0" },
+    { name = "numpy", specifier = ">=1.26.0,<2.4" },
     { name = "nvidia-cuda-cupti-cu12", marker = "extra == 'cuda-compat'" },
     { name = "nvidia-cuda-runtime-cu12", marker = "extra == 'cuda-compat'" },
     { name = "nvidia-cufft-cu12", marker = "extra == 'cuda-compat'" },

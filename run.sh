@@ -26,7 +26,7 @@ TTS_MODEL_ID=${TTS_MODEL_ID:-qwen3-tts-customvoice-1.7b}
 if [[ "$OS" == "Darwin" ]]; then
     TTS_MODEL_REPO=${TTS_MODEL_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16}
 else
-    TTS_MODEL_REPO=${TTS_MODEL_REPO:-Qwen/Qwen3-TTS-12Hz-1.7B}
+    TTS_MODEL_REPO=${TTS_MODEL_REPO:-Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice}
 fi
 
 PASS_MODE_FLAG=""
