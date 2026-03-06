@@ -19,7 +19,7 @@ logger = logging.getLogger("kortexa.tts.service")
 
 DEFAULT_MODEL_ID = "qwen3-tts-customvoice-1.7b"
 DEFAULT_MODEL_REPO_MLX = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16"
-DEFAULT_MODEL_REPO_CUDA = "Qwen/Qwen3-TTS-12Hz-1.7B"
+DEFAULT_MODEL_REPO_CUDA = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 # Keep backward compatibility — default repo depends on platform
 DEFAULT_MODEL_REPO = DEFAULT_MODEL_REPO_MLX
 DEFAULT_VOICE_ID = "aiden"
