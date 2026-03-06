@@ -22,7 +22,12 @@ HOST=${HOST:-0.0.0.0}
 PORT=${PORT:-4003}
 TTS_ENV=${TTS_ENV:-production}
 TTS_MODEL_ID=${TTS_MODEL_ID:-qwen3-tts-customvoice-1.7b}
-TTS_MODEL_REPO=${TTS_MODEL_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16}
+# Platform-aware default model repo
+if [[ "$OS" == "Darwin" ]]; then
+    TTS_MODEL_REPO=${TTS_MODEL_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16}
+else
+    TTS_MODEL_REPO=${TTS_MODEL_REPO:-Qwen/Qwen3-TTS-12Hz-1.7B}
+fi
 
 PASS_MODE_FLAG=""
 RELOAD_FLAG=""

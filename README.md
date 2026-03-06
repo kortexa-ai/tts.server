@@ -1,6 +1,6 @@
 # Kortexa TTS Server
 
-OpenAI-compatible text-to-speech server built for macOS Apple Silicon with `mlx-audio`.
+OpenAI-compatible text-to-speech server supporting macOS Apple Silicon (`mlx-audio`) and Linux/CUDA (`qwen-tts`).
 
 This project exposes a small public API:
 
@@ -19,10 +19,12 @@ OpenAPI docs are available at:
 
 ## Status
 
-- Primary runtime: macOS on Apple Silicon
-- Primary backend: `mlx-audio`
-- Primary model repo: `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16`
-- Linux/CUDA: not ready for the new public API yet
+| Platform | Backend | Model Repo | Streaming |
+|----------|---------|------------|-----------|
+| macOS Apple Silicon | `mlx-audio` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16` | Native chunked |
+| Linux/CUDA | `qwen-tts` | `Qwen/Qwen3-TTS-12Hz-1.7B` | Single-chunk fallback |
+
+Both platforms expose the same OpenAI-compatible API. Custom voices from `voices/*.wav` work on both (MLX uses ref_audio injection, CUDA uses x-vector voice cloning).
 
 ## Setup
 
@@ -35,7 +37,7 @@ Run:
 What it does:
 
 - macOS Apple Silicon: installs `ffmpeg`, creates the virtualenv, installs `mlx-audio` from GitHub
-- Ubuntu/Linux: installs `ffmpeg`, installs the CUDA-side Python deps, and leaves a note that the endpoint path is still in progress
+- Ubuntu/Linux: installs `ffmpeg`, installs CUDA-side Python deps (`qwen-tts`, PyTorch with CUDA)
 
 `ffmpeg` is required for `mp3`, `aac`, and `opus` output.
 
@@ -327,8 +329,9 @@ Custom voice names are case-insensitive in the API (stored with original case on
 
 ## Development Notes
 
-- macOS Apple Silicon is the only runtime fully wired to the public API today
-- Linux/CUDA setup is intentionally partial and documented as in-progress
+- Both macOS/MLX and Linux/CUDA runtimes are fully wired to the public API
+- Streaming on CUDA falls back to single-chunk delivery (qwen-tts does not support chunked generation)
+- Custom voices on CUDA use x-vector-only voice cloning (speaker embedding from wav); the `instructions` parameter is not applied for custom voices on CUDA
 - `GET /v1/voices` is a project-specific extension because voice discovery is otherwise annoying in exactly the way open source hobby servers should avoid
 
 ## License

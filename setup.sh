@@ -62,7 +62,7 @@ elif [[ "$OS" == "Linux" ]]; then
         HAS_CUDA=true
         # flash-attn skipped — difficult to build on Blackwell/aarch64
     else
-        echo "No NVIDIA GPU detected. CUDA endpoint path is still in development."
+        echo "No NVIDIA GPU detected. CUDA backend requires an NVIDIA GPU."
     fi
 else
     echo "Unsupported platform: $OS $ARCH"
@@ -94,7 +94,7 @@ Run: ./run.sh                             # Starts server on port 4003 (prod)
 ----------------------------------------------------------------
 
 Notes:
-- macOS Apple Silicon is the primary supported runtime today and uses MLX-Audio.
-- Linux/CUDA setup is scaffolded, but the OpenAI-style endpoint path there is still in development.
+- macOS Apple Silicon uses MLX-Audio backend.
+- Linux/CUDA uses qwen-tts backend (streaming falls back to single-chunk delivery).
 - ffmpeg is required for MP3/AAC/Opus output.
 EOF
