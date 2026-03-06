@@ -33,6 +33,10 @@ install_ffmpeg_macos() {
     fi
     echo "Installing ffmpeg via Homebrew..."
     brew install ffmpeg
+    if ! command -v sox &> /dev/null; then
+        echo "Installing sox via Homebrew..."
+        brew install sox
+    fi
 }
 
 install_ffmpeg_ubuntu() {
@@ -43,9 +47,9 @@ install_ffmpeg_ubuntu() {
         echo "Ubuntu setup expects apt-get for ffmpeg installation."
         exit 1
     fi
-    echo "Installing ffmpeg via apt-get..."
+    echo "Installing ffmpeg and sox via apt-get..."
     sudo apt-get update
-    sudo apt-get install -y ffmpeg
+    sudo apt-get install -y ffmpeg sox libsox-fmt-all
 }
 
 if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
