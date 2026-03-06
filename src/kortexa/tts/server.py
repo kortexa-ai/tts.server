@@ -61,12 +61,16 @@ def create_app(
         logging.getLogger(name).setLevel(logging.INFO)
 
     tts_service = TTSService(model_id=model_id, model_repo=model_repo)
+    # Async semaphore gates access to inference so requests queue in the
+    # event loop instead of blocking thread-pool workers on the inference lock.
+    inference_semaphore = asyncio.Semaphore(1)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logger.info("Loading TTS service (model=%s repo=%s)", model_id, model_repo)
         tts_service.load_model()
         app.state.tts_service = tts_service
+        app.state.inference_semaphore = inference_semaphore
         yield
         tts_service.unload_model()
 
@@ -233,15 +237,16 @@ def create_app(
                 },
             )
 
-        audio, sample_rate = await asyncio.get_running_loop().run_in_executor(
-            None,
-            lambda: svc.synthesize(
-                text=text,
-                voice=voice,
-                instructions=payload.instructions or "",
-                speed=payload.speed,
-            ),
-        )
+        async with app.state.inference_semaphore:
+            audio, sample_rate = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: svc.synthesize(
+                    text=text,
+                    voice=voice,
+                    instructions=payload.instructions or "",
+                    speed=payload.speed,
+                ),
+            )
         body = svc.encode_audio(audio, response_format)
         return Response(
             content=body,
