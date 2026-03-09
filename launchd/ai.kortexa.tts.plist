@@ -12,7 +12,7 @@
 		<string>1</string>
 	</dict>
 	<key>KeepAlive</key>
-	<false/>
+	<true/>
 	<key>Label</key>
 	<string>ai.kortexa.tts</string>
 	<key>ProgramArguments</key>
@@ -20,7 +20,7 @@
 		<string>/Users/francip/src/tts.server/launchd/kortexa-tts.sh</string>
 	</array>
 	<key>RunAtLoad</key>
-	<false/>
+	<true/>
 	<key>StandardErrorPath</key>
 	<string>/Users/francip/Library/Logs/tts.log</string>
 	<key>StandardOutPath</key>
