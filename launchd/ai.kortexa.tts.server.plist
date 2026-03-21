@@ -14,10 +14,10 @@
 	<key>KeepAlive</key>
 	<true/>
 	<key>Label</key>
-	<string>ai.kortexa.tts</string>
+	<string>ai.kortexa.tts.server</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/francip/src/tts.server/launchd/kortexa-tts.sh</string>
+		<string>/Users/francip/src/tts.server/launchd/kortexa-tts-server.sh</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
