@@ -75,7 +75,7 @@ fi
 
 HAS_CUDA=${HAS_CUDA:-false}
 
-uv venv
+uv venv --clear
 SYNC_ARGS=()
 for extra in "${UV_EXTRAS[@]}"; do
     SYNC_ARGS+=(--extra "$extra")
