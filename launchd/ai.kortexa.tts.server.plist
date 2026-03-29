@@ -12,7 +12,7 @@
 		<string>1</string>
 	</dict>
 	<key>KeepAlive</key>
-	<false/>
+	<true/>
 	<key>Label</key>
 	<string>ai.kortexa.tts.server</string>
 	<key>ProgramArguments</key>
