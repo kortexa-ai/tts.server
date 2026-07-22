@@ -41,14 +41,9 @@ mlx = [
 ]
 cuda = [
     "qwen-tts>=0.1.1",
-    "torch>=2.5.0",
-]
-cuda-compat = [
-    "nvidia-cufft-cu12",
-    "nvidia-nccl-cu12",
-    "nvidia-nvshmem-cu12",
-    "nvidia-cuda-runtime-cu12",
-    "nvidia-cuda-cupti-cu12",
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    "torchvision==0.26.0",
 ]
 
 [project.urls]
@@ -77,6 +72,22 @@ conflicts = [
         { extra = "cuda" },
     ],
 ]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu130", extra = "cuda" },
+]
+torchaudio = [
+    { index = "pytorch-cu130", extra = "cuda" },
+]
+torchvision = [
+    { index = "pytorch-cu130", extra = "cuda" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.black]
 line-length = 88

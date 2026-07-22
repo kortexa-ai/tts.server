@@ -24,15 +24,17 @@ fi
 UV_EXTRAS=()
 
 install_ffmpeg_macos() {
-    if command -v ffmpeg &> /dev/null; then
+    if command -v ffmpeg &> /dev/null && command -v sox &> /dev/null; then
         return
     fi
     if ! command -v brew &> /dev/null; then
-        echo "Homebrew is required to install ffmpeg on macOS."
+        echo "Homebrew is required to install ffmpeg and sox on macOS."
         exit 1
     fi
-    echo "Installing ffmpeg via Homebrew..."
-    brew install ffmpeg
+    if ! command -v ffmpeg &> /dev/null; then
+        echo "Installing ffmpeg via Homebrew..."
+        brew install ffmpeg
+    fi
     if ! command -v sox &> /dev/null; then
         echo "Installing sox via Homebrew..."
         brew install sox
@@ -40,16 +42,23 @@ install_ffmpeg_macos() {
 }
 
 install_ffmpeg_ubuntu() {
-    if command -v ffmpeg &> /dev/null; then
+    local PACKAGES=()
+    if ! command -v ffmpeg &> /dev/null; then
+        PACKAGES+=(ffmpeg)
+    fi
+    if ! command -v sox &> /dev/null; then
+        PACKAGES+=(sox libsox-fmt-all)
+    fi
+    if [[ ${#PACKAGES[@]} -eq 0 ]]; then
         return
     fi
     if ! command -v apt-get &> /dev/null; then
-        echo "Ubuntu setup expects apt-get for ffmpeg installation."
+        echo "Ubuntu setup expects apt-get for ffmpeg and sox installation."
         exit 1
     fi
-    echo "Installing ffmpeg and sox via apt-get..."
+    echo "Installing missing audio tools via apt-get: ${PACKAGES[*]}"
     sudo apt-get update
-    sudo apt-get install -y ffmpeg sox libsox-fmt-all
+    sudo apt-get install -y "${PACKAGES[@]}"
 }
 
 if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
@@ -59,14 +68,14 @@ if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
 elif [[ "$OS" == "Linux" ]]; then
     echo "Configuring Ubuntu/Linux environment."
     install_ffmpeg_ubuntu
-    UV_EXTRAS+=("cuda")
     if command -v nvidia-smi &> /dev/null; then
-        echo "NVIDIA GPU detected. Adding cuda-compat libraries."
-        UV_EXTRAS+=("cuda-compat")
+        echo "NVIDIA GPU detected."
+        UV_EXTRAS+=("cuda")
         HAS_CUDA=true
         # flash-attn skipped — difficult to build on Blackwell/aarch64
     else
-        echo "No NVIDIA GPU detected. CUDA backend requires an NVIDIA GPU."
+        echo "No NVIDIA GPU detected. The Linux backend requires an NVIDIA GPU."
+        exit 1
     fi
 else
     echo "Unsupported platform: $OS $ARCH"
@@ -80,13 +89,18 @@ SYNC_ARGS=()
 for extra in "${UV_EXTRAS[@]}"; do
     SYNC_ARGS+=(--extra "$extra")
 done
-uv sync "${SYNC_ARGS[@]}"
+uv sync --locked "${SYNC_ARGS[@]}"
 if [[ "$HAS_CUDA" == true ]]; then
-    # PyPI default torch on aarch64 is CPU-only; overwrite with CUDA torch from nightly index
-    echo "Installing PyTorch with CUDA support..."
-    uv pip install --reinstall --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
-    # CUDA torch drags in numpy 2.4 which breaks numba (via librosa via qwen-tts)
-    uv pip install 'numpy<2.4'
+    echo "Verifying the locked PyTorch CUDA environment..."
+    .venv/bin/python - <<'PY'
+import torch
+
+if not torch.cuda.is_available():
+    raise SystemExit("PyTorch installed, but CUDA is not available")
+
+print(f"PyTorch {torch.__version__} / CUDA {torch.version.cuda}")
+print(f"GPU: {torch.cuda.get_device_name(0)}")
+PY
 fi
 
 cat <<EOF

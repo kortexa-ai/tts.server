@@ -10,7 +10,7 @@ This project exposes a small public API:
 - `POST /v1/voices/reload`
 - `POST /v1/audio/speech`
 
-The server is intentionally small and focused. It currently targets the Qwen3-TTS `CustomVoice` model family on macOS. Linux/CUDA setup is scaffolded, but the endpoint parity there is still in development.
+The server is intentionally small and focused. It targets the Qwen3-TTS `CustomVoice` model family on macOS and the Qwen3-TTS base model on Linux/CUDA.
 
 OpenAPI docs are available at:
 
@@ -22,7 +22,7 @@ OpenAPI docs are available at:
 | Platform | Backend | Model Repo | Streaming |
 |----------|---------|------------|-----------|
 | macOS Apple Silicon | `mlx-audio` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16` | Native chunked |
-| Linux/CUDA | `qwen-tts` | `Qwen/Qwen3-TTS-12Hz-1.7B` | Single-chunk fallback |
+| Linux/CUDA | `qwen-tts` | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | Single-chunk fallback |
 
 Both platforms expose the same OpenAI-compatible API. Custom voices from `voices/*.wav` work on both (MLX uses ref_audio injection, CUDA uses x-vector voice cloning).
 
@@ -37,7 +37,7 @@ Run:
 What it does:
 
 - macOS Apple Silicon: installs `ffmpeg`, creates the virtualenv, installs `mlx-audio` from GitHub
-- Ubuntu/Linux: installs `ffmpeg`, installs CUDA-side Python deps (`qwen-tts`, PyTorch with CUDA)
+- Ubuntu/Linux: installs `ffmpeg` and SoX, then installs the locked CUDA-side Python dependencies (`qwen-tts` and the stable PyTorch CUDA 13.0 build)
 
 `ffmpeg` is required for `mp3`, `aac`, and `opus` output.
 
