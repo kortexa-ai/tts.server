@@ -40,6 +40,10 @@ mlx = [
     "mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git ; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 cuda = [
+    # Streams audio during generation via CUDA-graph capture; qwen-tts only
+    # returns finished waveforms. Preferred at load time, with qwen-tts kept as
+    # the fallback (and still the source of the shared model plumbing).
+    "faster-qwen3-tts>=0.3.2",
     "qwen-tts>=0.1.1",
     "torch==2.11.0",
     "torchaudio==2.11.0",

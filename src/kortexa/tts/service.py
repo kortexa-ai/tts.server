@@ -159,6 +159,15 @@ class TTSService:
             logger.exception("Failed to load MLX model")
 
     def _load_model_cuda(self) -> None:
+        # Prefer faster-qwen3-tts: same weights, same voice-clone call shape,
+        # but it yields audio during generation instead of after it. Measured on
+        # an RTX PRO 6000 with a warm model: first chunk 0.15s vs 3.9s, and
+        # 4.6x realtime vs ~3x. Fall back to plain qwen-tts when absent.
+        if importlib.util.find_spec("faster_qwen3_tts") is not None:
+            if self._load_model_cuda_faster():
+                return
+            logger.warning("faster-qwen3-tts failed to load; falling back to qwen-tts")
+
         self.backend = "qwen-tts"
 
         if importlib.util.find_spec("qwen_tts") is None:
@@ -445,6 +454,74 @@ class TTSService:
 
     # ── CUDA synthesis ──
 
+    def _load_model_cuda_faster(self) -> bool:
+        """Load the CUDA-graph backend. Returns False to fall back."""
+        self.backend = "faster-qwen3"
+        try:
+            import torch
+            from faster_qwen3_tts import FasterQwen3TTS
+
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            logger.info("Loading faster-qwen3-tts repo: %s (device=%s)", self.model_repo, device)
+            self.model = FasterQwen3TTS.from_pretrained(self.model_repo, device=device)
+            self.sample_rate = 24_000
+
+            # Capture the CUDA graphs now. Skipping this costs the first caller
+            # ~2.5s instead of 0.15s, which on a voice assistant is the one
+            # request most likely to be someone testing whether it works.
+            try:
+                self.model.warmup()
+                logger.info("faster-qwen3-tts CUDA graphs captured")
+            except Exception:
+                logger.exception("warmup failed; first request will be slow")
+
+            speakers = getattr(self.model, "get_supported_speakers", lambda: None)()
+            if speakers:
+                self._set_supported_voices(speakers)
+            languages = getattr(self.model, "get_supported_languages", lambda: None)()
+            if languages:
+                self.supported_languages = languages
+
+            self._load_custom_voices()
+            self.load_error = None
+            logger.info(
+                "faster-qwen3-tts loaded (voices=%d, custom=%d)",
+                len(self.supported_voices),
+                sum(1 for v in self.supported_voices if v.is_custom),
+            )
+            return True
+        except Exception:
+            logger.exception("Failed to load faster-qwen3-tts")
+            self.model = None
+            return False
+
+    def _clone_kwargs(self, voice: VoiceInfo) -> dict:
+        if not voice.wav_path:
+            raise ValueError(
+                f"Voice '{voice.id}' has no reference audio. "
+                f"CUDA backend requires a WAV file in voices/ directory."
+            )
+        # xvec_only is faster-qwen3-tts's spelling of qwen-tts's
+        # x_vector_only_mode: speaker embedding only, no ICL transcript needed.
+        return {"language": "auto", "ref_audio": voice.wav_path, "xvec_only": True}
+
+    def _synthesize_faster(self, *, text: str, voice: VoiceInfo) -> np.ndarray:
+        chunks = [
+            chunk for chunk in self._stream_faster(text=text, voice=voice) if len(chunk)
+        ]
+        if not chunks:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(chunks)
+
+    def _stream_faster(
+        self, *, text: str, voice: VoiceInfo, chunk_size: int = 8,
+    ) -> Iterator[np.ndarray]:
+        for chunk in self.model.generate_voice_clone_streaming(
+            text=text, chunk_size=chunk_size, **self._clone_kwargs(voice)
+        ):
+            audio = chunk[0] if isinstance(chunk, tuple) else chunk
+            yield self._to_numpy(audio)
+
     def _synthesize_cuda(
         self, *, text: str, voice: VoiceInfo, instructions: str,
     ) -> np.ndarray:
@@ -479,6 +556,8 @@ class TTSService:
         with self._inference_lock:
             if self.backend == "mlx-audio":
                 audio = self._synthesize_mlx(text=text, voice=voice, instructions=instructions)
+            elif self.backend == "faster-qwen3":
+                audio = self._synthesize_faster(text=text, voice=voice)
             elif self.backend == "qwen-tts":
                 audio = self._synthesize_cuda(text=text, voice=voice, instructions=instructions)
             else:
@@ -496,8 +575,16 @@ class TTSService:
         streaming_interval: float = 1.0,
     ) -> Iterator[np.ndarray]:
         self.ensure_ready()
+        if self.backend == "faster-qwen3":
+            with self._inference_lock:
+                for chunk in self._stream_faster(text=text, voice=voice):
+                    yield self._apply_speed(chunk, speed)
+            return
+
         if self.backend == "qwen-tts":
-            # qwen-tts does not support streaming — synthesize and yield as single chunk
+            # qwen-tts genuinely cannot stream: non_streaming_mode=False only
+            # simulates streaming *text input*, per its own docstring. Synthesize
+            # and yield as a single chunk.
             audio, _ = self.synthesize(
                 text=text, voice=voice, instructions=instructions, speed=speed,
             )
