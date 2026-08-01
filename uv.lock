@@ -203,8 +203,7 @@ name = "cuda-bindings"
 version = "12.9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder", version = "1.3.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-kortexa-ai-tts-mlx'" },
-    { name = "cuda-pathfinder", version = "1.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-14-kortexa-ai-tts-cuda' and extra == 'extra-14-kortexa-ai-tts-mlx') or (extra != 'extra-14-kortexa-ai-tts-cuda' and extra != 'extra-14-kortexa-ai-tts-mlx')" },
+    { name = "cuda-pathfinder", marker = "extra == 'extra-14-kortexa-ai-tts-mlx' or extra != 'extra-14-kortexa-ai-tts-cuda'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/c2/65bfd79292b8ff18be4dd7f7442cea37bcbc1a228c1886f1dea515c45b67/cuda_bindings-12.9.4-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:694ba35023846625ef471257e6b5a4bc8af690f961d197d77d34b1d1db393f56", size = 11760260, upload-time = "2025-10-21T14:51:40.79Z" },
@@ -220,7 +219,7 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "cuda-pathfinder", version = "1.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-14-kortexa-ai-tts-cuda') or (sys_platform == 'emscripten' and extra == 'extra-14-kortexa-ai-tts-cuda' and extra == 'extra-14-kortexa-ai-tts-mlx') or (sys_platform == 'win32' and extra == 'extra-14-kortexa-ai-tts-cuda' and extra == 'extra-14-kortexa-ai-tts-mlx')" },
+    { name = "cuda-pathfinder", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-14-kortexa-ai-tts-cuda') or (sys_platform == 'emscripten' and extra == 'extra-14-kortexa-ai-tts-cuda' and extra == 'extra-14-kortexa-ai-tts-mlx') or (sys_platform == 'win32' and extra == 'extra-14-kortexa-ai-tts-cuda' and extra == 'extra-14-kortexa-ai-tts-mlx')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ce/67/5e7dba1ba576dd73da5dee894ca076ca5e959450dfff66d6d510a255d1f7/cuda_bindings-13.3.1-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c7855c4868aabc0cfae28abbe83d56734bdfbd08f08fc234ac1912a12858bf49", size = 6025351, upload-time = "2026-05-29T23:11:49.685Z" },
@@ -230,20 +229,8 @@ wheels = [
 
 [[package]]
 name = "cuda-pathfinder"
-version = "1.3.4"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/5e/db279a3bfbd18d59d0598922a3b3c1454908d0969e8372260afec9736376/cuda_pathfinder-1.3.4-py3-none-any.whl", hash = "sha256:fb983f6e0d43af27ef486e14d5989b5f904ef45cedf40538bfdcbffa6bb01fb2", size = 30878, upload-time = "2026-02-11T18:50:31.008Z" },
-]
-
-[[package]]
-name = "cuda-pathfinder"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-14-kortexa-ai-tts-cuda' and extra != 'extra-14-kortexa-ai-tts-mlx'",
-    "extra != 'extra-14-kortexa-ai-tts-cuda' and extra != 'extra-14-kortexa-ai-tts-mlx'",
-]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fc/b4/d088047afe39827556df21118cac9ffd20cc3f968c99a7681494d1eb333c/cuda_pathfinder-1.6.0-py3-none-any.whl", hash = "sha256:1503af579d8379c24bdd65528379bc57039b0455be9f5f9686cf8e473a1fce51", size = 54591, upload-time = "2026-07-21T15:03:56.224Z" },
 ]
@@ -323,6 +310,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/48/47/75f6bea02e797abff1bca968d5997793898032d9923c1935ae2efdece642/fastapi-0.129.0.tar.gz", hash = "sha256:61315cebd2e65df5f97ec298c888f9de30430dd0612d59d6480beafbc10655af", size = 375450, upload-time = "2026-02-12T13:54:52.541Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/dd/d0ee25348ac58245ee9f90b6f3cbb666bf01f69be7e0911f9851bddbda16/fastapi-0.129.0-py3-none-any.whl", hash = "sha256:b4946880e48f462692b31c083be0432275cbfb6e2274566b1be91479cc1a84ec", size = 102950, upload-time = "2026-02-12T13:54:54.528Z" },
+]
+
+[[package]]
+name = "faster-qwen3-tts"
+version = "0.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub", version = "0.36.2", source = { registry = "https://pypi.org/simple" } },
+    { name = "numpy" },
+    { name = "qwen-tts" },
+    { name = "soundfile" },
+    { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+    { name = "transformers", version = "4.57.3", source = { registry = "https://pypi.org/simple" } },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/27/ea/03a22ef4befde982111b509e89b371b2b3066b658f0e43eb5b6de553ea0d/faster_qwen3_tts-0.3.2.tar.gz", hash = "sha256:8fb853b2b896e14858f342245780814c522d3ae06babc717ac926399ad8c3e6f", size = 93311, upload-time = "2026-07-17T11:53:32.064Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/c7/49525c63af1644d6706d415c61558c8013c675fbd5ef50bc5e4b7c2641dc/faster_qwen3_tts-0.3.2-py3-none-any.whl", hash = "sha256:b17b2839d56cb178f5c382d85214ae62852b5728830bfeda066e6a15c832a364", size = 42924, upload-time = "2026-07-17T11:53:30.583Z" },
 ]
 
 [[package]]
@@ -612,6 +616,7 @@ dependencies = [
 
 [package.optional-dependencies]
 cuda = [
+    { name = "faster-qwen3-tts" },
     { name = "qwen-tts" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchaudio" },
@@ -635,6 +640,7 @@ mlx = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "faster-qwen3-tts", marker = "extra == 'cuda'", specifier = ">=0.3.2" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "flash-attn", marker = "extra == 'flash'" },
     { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", git = "https://github.com/Blaizzy/mlx-audio.git" },
