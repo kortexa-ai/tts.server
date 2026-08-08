@@ -6,10 +6,9 @@ authors = [
     { name = "kortexa.ai", email = "francip@kortexa.ai" }
 ]
 keywords = ["tts", "text-to-speech", "openai-compatible", "mlx-audio", "qwen3-tts", "custom-voice", "fastapi", "streaming", "kortexa"]
-license = { text = "MIT" }
+license = "MIT"
 readme = "README.md"
 classifiers = [
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Development Status :: 5 - Production/Stable",
@@ -19,22 +18,22 @@ classifiers = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "numpy>=1.26.0,<2.4",
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
+    "numpy>=2.3.5,<2.4",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.25.0",
-    "black>=24.0.0",
-    "flake8>=7.0.0",
-    "mypy>=1.13.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "black>=26.5.1",
+    "flake8>=7.3.0",
+    "mypy>=2.3.0",
 ]
 # Flash attention for CUDA (reduces VRAM usage)
 flash = [
-    "flash-attn",
+    "flash-attn>=2.8.3.post1",
 ]
 mlx = [
     "mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git ; sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -60,7 +59,7 @@ Documentation = "https://github.com/kortexa-ai/tts.server#readme"
 "kortexa-tts" = "kortexa.tts.cli:main"
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=83.0.0", "wheel>=0.47.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

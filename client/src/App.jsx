@@ -216,7 +216,9 @@ function App() {
       const res = await fetch(`${API}/voices`)
       const data = await res.json()
       setSavedVoices(data.voices || [])
-    } catch {}
+    } catch {
+      // Keep the last known list when the local designer API is unavailable.
+    }
   }
 
   async function generate() {
