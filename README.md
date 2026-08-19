@@ -22,7 +22,7 @@ OpenAPI docs are available at:
 | Platform | Backend | Model Repo | Streaming |
 |----------|---------|------------|-----------|
 | macOS Apple Silicon | `mlx-audio` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16` | Native chunked |
-| Linux/CUDA | `qwen-tts` | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | Single-chunk fallback |
+| Linux/CUDA | `faster-qwen3-tts` (`qwen-tts` fallback) | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | Native chunked when available |
 
 Both platforms expose the same OpenAI-compatible API. Custom voices from `voices/*.wav` work on both (MLX uses ref_audio injection, CUDA uses x-vector voice cloning).
 
@@ -37,7 +37,7 @@ Run:
 What it does:
 
 - macOS Apple Silicon: installs `ffmpeg`, creates the virtualenv, installs `mlx-audio` from GitHub
-- Ubuntu/Linux: installs `ffmpeg` and SoX, then installs the locked CUDA-side Python dependencies (`qwen-tts` and the stable PyTorch CUDA 13.0 build)
+- Ubuntu/Linux: installs `ffmpeg` and SoX, then installs the locked CUDA-side Python dependencies (`faster-qwen3-tts`, its `qwen-tts` fallback, and the stable PyTorch CUDA 13.0 build)
 
 `ffmpeg` is required for `mp3`, `aac`, and `opus` output.
 
@@ -330,7 +330,9 @@ Custom voice names are case-insensitive in the API (stored with original case on
 ## Development Notes
 
 - Both macOS/MLX and Linux/CUDA runtimes are fully wired to the public API
-- Streaming on CUDA falls back to single-chunk delivery (qwen-tts does not support chunked generation)
+- CUDA uses `faster-qwen3-tts` for incremental audio when available and falls
+  back to single-chunk delivery with `qwen-tts`. Disconnecting a streaming
+  client closes its model iterator before admitting the next synthesis request.
 - Custom voices on CUDA use x-vector-only voice cloning (speaker embedding from wav); the `instructions` parameter is not applied for custom voices on CUDA
 - `GET /v1/voices` is a project-specific extension because voice discovery is otherwise annoying in exactly the way open source hobby servers should avoid
 

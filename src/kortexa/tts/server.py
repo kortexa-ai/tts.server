@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import AsyncIterator, Iterable, Iterator, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -20,6 +20,87 @@ from .service import (
 )
 
 logger = logging.getLogger("kortexa.tts")
+
+_STREAM_COMPLETE = object()
+_STREAM_QUEUE_SIZE = 2
+_STREAM_QUEUE_POLL_SECONDS = 0.1
+
+
+def _next_stream_item(iterator: Iterator[bytes | str]) -> bytes | str | object:
+    return next(iterator, _STREAM_COMPLETE)
+
+
+async def _disconnect_safe_stream(
+    content: Iterable[bytes | str],
+    inference_semaphore: asyncio.Semaphore,
+    background_tasks: set[asyncio.Task[None]],
+) -> AsyncIterator[bytes | str]:
+    """Keep model iteration owned until a disconnected response can close it.
+
+    This prevents the synchronous generator from retaining the inference lock.
+    """
+    queue: asyncio.Queue[bytes | str | Exception | object] = asyncio.Queue(
+        maxsize=_STREAM_QUEUE_SIZE,
+    )
+    abandoned = asyncio.Event()
+
+    async def offer(item: bytes | str | Exception | object) -> bool:
+        while not abandoned.is_set():
+            try:
+                await asyncio.wait_for(
+                    queue.put(item),
+                    timeout=_STREAM_QUEUE_POLL_SECONDS,
+                )
+                return True
+            except TimeoutError:
+                continue
+        return False
+
+    async def produce() -> None:
+        iterator = iter(content)
+        try:
+            async with inference_semaphore:
+                while not abandoned.is_set():
+                    item = await asyncio.to_thread(_next_stream_item, iterator)
+                    if item is _STREAM_COMPLETE:
+                        break
+                    if not await offer(item):
+                        break
+        except Exception as exc:
+            if not abandoned.is_set():
+                await offer(exc)
+            else:
+                logger.warning(
+                    "TTS inference failed while cleaning up a "
+                    "disconnected stream",
+                    exc_info=True,
+                )
+        finally:
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                await asyncio.to_thread(close)
+            await offer(_STREAM_COMPLETE)
+
+    producer = asyncio.create_task(produce(), name="tts-stream-producer")
+    background_tasks.add(producer)
+    producer.add_done_callback(background_tasks.discard)
+
+    try:
+        while True:
+            item = await queue.get()
+            if item is _STREAM_COMPLETE:
+                return
+            if isinstance(item, Exception):
+                raise item
+            if not isinstance(item, (bytes, str)):
+                raise TypeError("Unexpected TTS stream item")
+            yield item
+    finally:
+        # StreamingResponse can cancel iteration while a synchronous model call
+        # is still running in a worker thread. The producer remains alive long
+        # enough to regain ownership, close the iterator, and release
+        # inference.
+        abandoned.set()
 
 
 class VoiceReference(BaseModel):
@@ -64,6 +145,7 @@ def create_app(
     # Async semaphore gates access to inference so requests queue in the
     # event loop instead of blocking thread-pool workers on the inference lock.
     inference_semaphore = asyncio.Semaphore(1)
+    inference_tasks: set[asyncio.Task[None]] = set()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -71,6 +153,7 @@ def create_app(
         tts_service.load_model()
         app.state.tts_service = tts_service
         app.state.inference_semaphore = inference_semaphore
+        app.state.inference_tasks = inference_tasks
         yield
         tts_service.unload_model()
 
@@ -215,12 +298,16 @@ def create_app(
 
         if wants_audio_stream:
             return StreamingResponse(
-                svc.stream_audio_bytes(
-                    text=text,
-                    voice=voice,
-                    instructions=payload.instructions or "",
-                    speed=payload.speed,
-                    response_format=response_format,
+                _disconnect_safe_stream(
+                    svc.stream_audio_bytes(
+                        text=text,
+                        voice=voice,
+                        instructions=payload.instructions or "",
+                        speed=payload.speed,
+                        response_format=response_format,
+                    ),
+                    app.state.inference_semaphore,
+                    app.state.inference_tasks,
                 ),
                 media_type=svc.media_type_for_format(response_format),
                 headers={
@@ -233,12 +320,16 @@ def create_app(
 
         if payload.stream_format == "sse":
             return StreamingResponse(
-                svc.stream_sse(
-                    text=text,
-                    voice=voice,
-                    instructions=payload.instructions or "",
-                    speed=payload.speed,
-                    response_format=response_format,
+                _disconnect_safe_stream(
+                    svc.stream_sse(
+                        text=text,
+                        voice=voice,
+                        instructions=payload.instructions or "",
+                        speed=payload.speed,
+                        response_format=response_format,
+                    ),
+                    app.state.inference_semaphore,
+                    app.state.inference_tasks,
                 ),
                 media_type="text/event-stream",
                 headers={
