@@ -1,0 +1,14 @@
+{
+  "id": "qwen3-tts-customvoice-1.7b",
+  "object": "model",
+  "created": 0,
+  "owned_by": "qwen",
+  "type": "speech",
+  "provider": "kortexa-ai",
+  "input_modalities": ["text"],
+  "output_modalities": ["audio"],
+  "endpoints": ["/v1/audio/speech"],
+  "capabilities": { "streaming": true },
+  "availability": "always",
+  "control_service": "ai.kortexa.tts-server"
+}
