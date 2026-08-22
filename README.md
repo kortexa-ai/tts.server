@@ -9,6 +9,8 @@ This project exposes a small public API:
 - `GET /v1/voices`
 - `POST /v1/voices/reload`
 - `POST /v1/audio/speech`
+- `POST /generate` — simple prompt-to-MP3 facade
+- `WS /ws` — streaming PCM voice generation
 
 The server is intentionally small and focused. It targets the Qwen3-TTS `CustomVoice` model family on macOS and the Qwen3-TTS base model on Linux/CUDA.
 
@@ -162,6 +164,27 @@ curl http://127.0.0.1:4003/v1/audio/speech \
   }' \
   --output speech.wav
 ```
+
+### Media facade
+
+`POST /generate` accepts a small JSON request and always returns MP3:
+
+```json
+{
+  "prompt": "Hello from Kortexa.",
+  "model": "qwen3-tts-customvoice-1.7b",
+  "voice": "aiden",
+  "instructions": "Speak warmly.",
+  "speed": 1.0
+}
+```
+
+Only `prompt` is required. The configured model and default voice are used when
+the optional fields are absent.
+
+`WS /ws` accepts the same object with an optional `"type": "generate"`. The
+server sends a `start` JSON message with PCM metadata, binary mono PCM16 chunks,
+then `{ "type": "done" }`. Errors are JSON messages with `type: "error"`.
 
 #### Streaming audio example
 

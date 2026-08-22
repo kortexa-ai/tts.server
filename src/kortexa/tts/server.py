@@ -6,11 +6,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Iterable, Iterator, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .service import (
     DEFAULT_MODEL_ID,
@@ -114,6 +114,14 @@ class SpeechRequest(BaseModel):
     response_format: Literal["mp3", "wav", "flac", "pcm", "aac", "opus"] | None = None
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
     stream_format: Literal["audio", "sse"] | None = None
+
+
+class GenerateRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=4096)
+    model: str | None = None
+    voice: str | VoiceReference | None = None
+    instructions: str | None = Field(default=None, max_length=4096)
+    speed: float = Field(default=1.0, ge=0.25, le=4.0)
 
 
 def error_payload(message: str, error_type: str) -> dict[str, Any]:
@@ -234,6 +242,8 @@ def create_app(
                 "GET /v1/voices",
                 "POST /v1/voices/reload",
                 "POST /v1/audio/speech",
+                "POST /generate",
+                "WS /ws",
             ],
         }
 
@@ -268,8 +278,7 @@ def create_app(
             "custom_count": sum(1 for v in svc.supported_voices if v.is_custom),
         }
 
-    @app.post("/v1/audio/speech")
-    async def create_speech(payload: SpeechRequest) -> Response:
+    async def _create_speech(payload: SpeechRequest) -> Response:
         svc: TTSService = app.state.tts_service
         text = payload.input.strip()
         if not text:
@@ -373,6 +382,102 @@ def create_app(
                 "x-sample-rate": str(sample_rate),
             },
         )
+
+    @app.post("/v1/audio/speech")
+    async def create_speech(payload: SpeechRequest) -> Response:
+        return await _create_speech(payload)
+
+    def facade_payload(payload: GenerateRequest, *, streaming: bool) -> SpeechRequest:
+        svc: TTSService = app.state.tts_service
+        svc.ensure_ready()
+        default_voice = svc.default_voice
+        selected_voice = payload.voice
+        if selected_voice is None:
+            if default_voice is None:
+                raise HTTPException(status_code=503, detail="No TTS voice is available")
+            selected_voice = default_voice.id
+        return SpeechRequest(
+            model=payload.model or svc.model_id,
+            input=payload.prompt,
+            voice=selected_voice,
+            instructions=payload.instructions,
+            speed=payload.speed,
+            response_format="pcm" if streaming else "mp3",
+            stream_format="audio" if streaming else None,
+        )
+
+    @app.post("/generate")
+    async def generate(payload: GenerateRequest) -> Response:
+        """Simple media facade: prompt in, MP3 out."""
+        return await _create_speech(facade_payload(payload, streaming=False))
+
+    @app.websocket("/ws")
+    async def websocket_voice(websocket: WebSocket) -> None:
+        """Stream PCM16 chunks for JSON ``generate`` requests."""
+        await websocket.accept()
+        try:
+            while True:
+                message = await websocket.receive_json()
+                if not isinstance(message, dict):
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "Expected a JSON object",
+                        }
+                    )
+                    continue
+                if message.get("type", "generate") != "generate":
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "Expected a generate message",
+                        }
+                    )
+                    continue
+                try:
+                    payload = GenerateRequest.model_validate(message)
+                    request = facade_payload(payload, streaming=True)
+                    svc: TTSService = app.state.tts_service
+                    voice_input = (
+                        request.voice.model_dump()
+                        if isinstance(request.voice, VoiceReference)
+                        else request.voice
+                    )
+                    voice = svc.resolve_voice(voice_input)
+                    await websocket.send_json(
+                        {
+                            "type": "start",
+                            "format": "pcm_s16le",
+                            "sample_rate": svc.sample_rate,
+                            "channels": 1,
+                            "model": svc.model_id,
+                            "voice": voice.id,
+                        }
+                    )
+                    async for chunk in _disconnect_safe_stream(
+                        svc.stream_audio_bytes(
+                            text=request.input.strip(),
+                            voice=voice,
+                            instructions=request.instructions or "",
+                            speed=request.speed,
+                            response_format="pcm",
+                        ),
+                        app.state.inference_semaphore,
+                        app.state.inference_tasks,
+                    ):
+                        if isinstance(chunk, str):
+                            chunk = chunk.encode("utf-8")
+                        await websocket.send_bytes(chunk)
+                    await websocket.send_json({"type": "done"})
+                except (
+                    HTTPException,
+                    RequestValidationError,
+                    ValidationError,
+                    ValueError,
+                ) as exc:
+                    await websocket.send_json({"type": "error", "message": str(exc)})
+        except WebSocketDisconnect:
+            return
 
     return app
 

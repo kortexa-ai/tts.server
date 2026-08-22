@@ -7,7 +7,7 @@
   "provider": "kortexa-ai",
   "input_modalities": ["text"],
   "output_modalities": ["audio"],
-  "endpoints": ["/v1/audio/speech"],
+  "endpoints": ["/v1/audio/speech", "/voice/generate", "/voice/ws"],
   "capabilities": { "streaming": true },
   "availability": "always",
   "control_service": "ai.kortexa.tts-server"

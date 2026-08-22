@@ -16,6 +16,8 @@ Small OpenAI-compatible text-to-speech server for macOS Apple Silicon using MLX-
 - `GET /v1/voices`
 - `POST /v1/voices/reload`
 - `POST /v1/audio/speech`
+- `POST /generate` — simple prompt-to-MP3 facade
+- `WS /ws` — streaming PCM voice generation
 
 ## `GET /health`
 

@@ -3,7 +3,14 @@ import threading
 
 import pytest
 
-from kortexa.tts.server import _disconnect_safe_stream
+from kortexa.tts.server import _disconnect_safe_stream, create_app
+
+
+def test_media_facade_routes_are_registered():
+    paths = {route.path for route in create_app().routes}
+
+    assert "/generate" in paths
+    assert "/ws" in paths
 
 
 @pytest.mark.asyncio
