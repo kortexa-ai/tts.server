@@ -33,8 +33,12 @@ def main() -> None:
         help="Underlying model repo to load",
     )
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--dev", action="store_true", help="Use development env resolution")
-    group.add_argument("--prod", action="store_true", help="Use production env resolution")
+    group.add_argument(
+        "--dev", action="store_true", help="Use development env resolution"
+    )
+    group.add_argument(
+        "--prod", action="store_true", help="Use production env resolution"
+    )
     args = parser.parse_args()
 
     mode = "development" if args.dev else "production"

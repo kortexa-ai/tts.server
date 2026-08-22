@@ -11,7 +11,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, cast
 
 import numpy as np
 
@@ -59,9 +59,9 @@ class TTSService:
         self.backend = "unknown"
         self.sample_rate = 24_000
 
-        self.model = None
-        self.mx = None
-        self.audio_write = None
+        self.model: Any = None
+        self.mx: Any = None
+        self.audio_write: Any = None
         self.load_error: Optional[str] = None
 
         self.supported_languages: list[str] = []
@@ -87,13 +87,15 @@ class TTSService:
         if _is_cuda_platform() and "mlx-community" in self.model_repo:
             logger.warning(
                 "MLX model repo '%s' detected on Linux — switching to CUDA default: %s",
-                self.model_repo, DEFAULT_MODEL_REPO_CUDA,
+                self.model_repo,
+                DEFAULT_MODEL_REPO_CUDA,
             )
             self.model_repo = DEFAULT_MODEL_REPO_CUDA
         elif _is_mlx_platform() and self.model_repo == DEFAULT_MODEL_REPO_CUDA:
             logger.warning(
                 "CUDA model repo '%s' detected on macOS — switching to MLX default: %s",
-                self.model_repo, DEFAULT_MODEL_REPO_MLX,
+                self.model_repo,
+                DEFAULT_MODEL_REPO_MLX,
             )
             self.model_repo = DEFAULT_MODEL_REPO_MLX
 
@@ -184,7 +186,12 @@ class TTSService:
 
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
             dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-            logger.info("Loading CUDA model repo: %s (device=%s, dtype=%s)", self.model_repo, device, dtype)
+            logger.info(
+                "Loading CUDA model repo: %s (device=%s, dtype=%s)",
+                self.model_repo,
+                device,
+                dtype,
+            )
 
             self.model = Qwen3TTSModel.from_pretrained(
                 self.model_repo,
@@ -240,9 +247,13 @@ class TTSService:
         for wav in sorted(VOICES_DIR.glob("*.wav")):
             voice_id = wav.stem.lower()
             if voice_id in self._voice_lookup:
-                logger.warning("Custom voice '%s' conflicts with built-in, skipping", voice_id)
+                logger.warning(
+                    "Custom voice '%s' conflicts with built-in, skipping", voice_id
+                )
                 continue
-            voice = VoiceInfo(id=voice_id, name=wav.stem, is_custom=True, wav_path=str(wav))
+            voice = VoiceInfo(
+                id=voice_id, name=wav.stem, is_custom=True, wav_path=str(wav)
+            )
             self.supported_voices.append(voice)
             self._voice_lookup[voice_id] = voice
             logger.info("Loaded custom voice: %s", voice_id)
@@ -262,23 +273,37 @@ class TTSService:
         model = self.model
         model._custom_ref_audio = None
 
-        def patched_prepare(text, language="auto", speaker=None, ref_audio=None, ref_text=None, instruct=None):
+        def patched_prepare(
+            text: Any,
+            language: str = "auto",
+            speaker: Any = None,
+            ref_audio: Any = None,
+            ref_text: str | None = None,
+            instruct: str | None = None,
+        ) -> Any:
             injected = model._custom_ref_audio
             if injected is not None:
                 ref_audio = injected
                 speaker = None  # ref_audio takes priority
-            return orig_prepare(text, language, speaker, ref_audio=ref_audio, ref_text=ref_text, instruct=instruct)
+            return orig_prepare(
+                text,
+                language,
+                speaker,
+                ref_audio=ref_audio,
+                ref_text=ref_text,
+                instruct=instruct,
+            )
 
         model._prepare_generation_inputs = patched_prepare
 
-    def _load_voice_audio_mlx(self, voice: VoiceInfo):
+    def _load_voice_audio_mlx(self, voice: VoiceInfo) -> Any:
         """Load a custom voice's wav file as an mx array."""
         import mlx.core as mx
         from mlx_audio.audio_io import read as audio_read
 
-        audio, sr = audio_read(voice.wav_path)
+        audio, _sample_rate = audio_read(voice.wav_path)
         if isinstance(audio, np.ndarray):
-            audio = mx.array(audio)
+            audio = mx.array(cast(Any, audio))
         return audio
 
     def _any_builtin_speaker(self) -> str:
@@ -313,7 +338,9 @@ class TTSService:
             raise ValueError("`voice` is required")
         if voice_id not in self._voice_lookup:
             available = [item.id for item in self.supported_voices]
-            raise ValueError(f"Unknown voice '{voice_id}'. Available voices: {available}")
+            raise ValueError(
+                f"Unknown voice '{voice_id}'. Available voices: {available}"
+            )
         return self._voice_lookup[voice_id]
 
     def health(self) -> dict[str, Any]:
@@ -391,12 +418,16 @@ class TTSService:
         old_positions = np.arange(old_length, dtype=np.float32)
         new_positions = np.linspace(0, old_length - 1, new_length, dtype=np.float32)
         resampled = np.interp(new_positions, old_positions, audio).astype(np.float32)
-        return np.clip(resampled, -1.0, 1.0)
+        return np.asarray(np.clip(resampled, -1.0, 1.0), dtype=np.float32)
 
     # ── MLX synthesis ──
 
     def _synthesize_mlx(
-        self, *, text: str, voice: VoiceInfo, instructions: str,
+        self,
+        *,
+        text: str,
+        voice: VoiceInfo,
+        instructions: str,
     ) -> np.ndarray:
         if voice.is_custom:
             self.model._custom_ref_audio = self._load_voice_audio_mlx(voice)
@@ -425,7 +456,12 @@ class TTSService:
         return self._collect_audio(results)
 
     def _stream_mlx(
-        self, *, text: str, voice: VoiceInfo, instructions: str, streaming_interval: float,
+        self,
+        *,
+        text: str,
+        voice: VoiceInfo,
+        instructions: str,
+        streaming_interval: float,
     ) -> Iterator[np.ndarray]:
         if voice.is_custom:
             self.model._custom_ref_audio = self._load_voice_audio_mlx(voice)
@@ -462,7 +498,9 @@ class TTSService:
             from faster_qwen3_tts import FasterQwen3TTS
 
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
-            logger.info("Loading faster-qwen3-tts repo: %s (device=%s)", self.model_repo, device)
+            logger.info(
+                "Loading faster-qwen3-tts repo: %s (device=%s)", self.model_repo, device
+            )
             self.model = FasterQwen3TTS.from_pretrained(self.model_repo, device=device)
             self.sample_rate = 24_000
 
@@ -514,7 +552,11 @@ class TTSService:
         return np.concatenate(chunks)
 
     def _stream_faster(
-        self, *, text: str, voice: VoiceInfo, chunk_size: int = 8,
+        self,
+        *,
+        text: str,
+        voice: VoiceInfo,
+        chunk_size: int = 8,
     ) -> Iterator[np.ndarray]:
         for chunk in self.model.generate_voice_clone_streaming(
             text=text, chunk_size=chunk_size, **self._clone_kwargs(voice)
@@ -523,7 +565,11 @@ class TTSService:
             yield self._to_numpy(audio)
 
     def _synthesize_cuda(
-        self, *, text: str, voice: VoiceInfo, instructions: str,
+        self,
+        *,
+        text: str,
+        voice: VoiceInfo,
+        instructions: str,
     ) -> np.ndarray:
         # CUDA uses Base model — all synthesis goes through voice cloning
         if not voice.wav_path:
@@ -555,11 +601,15 @@ class TTSService:
         self.ensure_ready()
         with self._inference_lock:
             if self.backend == "mlx-audio":
-                audio = self._synthesize_mlx(text=text, voice=voice, instructions=instructions)
+                audio = self._synthesize_mlx(
+                    text=text, voice=voice, instructions=instructions
+                )
             elif self.backend == "faster-qwen3":
                 audio = self._synthesize_faster(text=text, voice=voice)
             elif self.backend == "qwen-tts":
-                audio = self._synthesize_cuda(text=text, voice=voice, instructions=instructions)
+                audio = self._synthesize_cuda(
+                    text=text, voice=voice, instructions=instructions
+                )
             else:
                 raise RuntimeError(f"Unknown backend: {self.backend}")
         audio = self._apply_speed(audio, speed)
@@ -586,14 +636,19 @@ class TTSService:
             # simulates streaming *text input*, per its own docstring. Synthesize
             # and yield as a single chunk.
             audio, _ = self.synthesize(
-                text=text, voice=voice, instructions=instructions, speed=speed,
+                text=text,
+                voice=voice,
+                instructions=instructions,
+                speed=speed,
             )
             yield audio
             return
 
         with self._inference_lock:
             for chunk in self._stream_mlx(
-                text=text, voice=voice, instructions=instructions,
+                text=text,
+                voice=voice,
+                instructions=instructions,
                 streaming_interval=streaming_interval,
             ):
                 yield self._apply_speed(chunk, speed)
@@ -627,7 +682,7 @@ class TTSService:
     def _encode_pcm(self, audio: np.ndarray) -> bytes:
         """Encode audio as raw 16-bit PCM."""
         clipped = np.clip(audio, -1.0, 1.0)
-        return (clipped * 32767.0).astype("<i2").tobytes()
+        return bytes((clipped * 32767.0).astype("<i2").tobytes())
 
     def _encode_soundfile(self, audio: np.ndarray, response_format: str) -> bytes:
         """Encode audio using soundfile (wav, flac)."""
@@ -650,7 +705,7 @@ class TTSService:
     ) -> Iterator[bytes]:
         if response_format != STREAMING_RESPONSE_FORMAT:
             raise ValueError(
-                "Streaming currently supports `response_format=\"pcm\"` only."
+                'Streaming currently supports `response_format="pcm"` only.'
             )
 
         for chunk in self.stream_audio(
@@ -674,7 +729,7 @@ class TTSService:
     ) -> Iterator[str]:
         if response_format != STREAMING_RESPONSE_FORMAT:
             raise ValueError(
-                "SSE streaming currently supports `response_format=\"pcm\"` only."
+                'SSE streaming currently supports `response_format="pcm"` only.'
             )
 
         started = time.perf_counter()
@@ -754,8 +809,10 @@ class TTSService:
 
         completed = subprocess.run(cmd, input=pcm, capture_output=True, check=False)
         if completed.returncode != 0:
-            raise RuntimeError(completed.stderr.decode("utf-8", errors="ignore").strip())
-        return completed.stdout
+            raise RuntimeError(
+                completed.stderr.decode("utf-8", errors="ignore").strip()
+            )
+        return bytes(completed.stdout)
 
 
 def shutil_which(binary: str) -> Optional[str]:

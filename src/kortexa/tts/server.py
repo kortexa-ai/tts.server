@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Iterable, Iterator, Literal
+from typing import Any, AsyncIterator, Iterable, Iterator, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -71,8 +71,7 @@ async def _disconnect_safe_stream(
                 await offer(exc)
             else:
                 logger.warning(
-                    "TTS inference failed while cleaning up a "
-                    "disconnected stream",
+                    "TTS inference failed while cleaning up a disconnected stream",
                     exc_info=True,
                 )
         finally:
@@ -117,7 +116,7 @@ class SpeechRequest(BaseModel):
     stream_format: Literal["audio", "sse"] | None = None
 
 
-def error_payload(message: str, error_type: str) -> dict:
+def error_payload(message: str, error_type: str) -> dict[str, Any]:
     return {
         "error": {
             "message": message,
@@ -148,7 +147,7 @@ def create_app(
     inference_tasks: set[asyncio.Task[None]] = set()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Loading TTS service (model=%s repo=%s)", model_id, model_repo)
         tts_service.load_model()
         app.state.tts_service = tts_service
@@ -173,16 +172,22 @@ def create_app(
     )
 
     @app.exception_handler(HTTPException)
-    async def http_exception_handler(_request: Request, exc: HTTPException):
+    async def http_exception_handler(
+        _request: Request, exc: HTTPException
+    ) -> JSONResponse:
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-        error_type = "server_error" if exc.status_code >= 500 else "invalid_request_error"
+        error_type = (
+            "server_error" if exc.status_code >= 500 else "invalid_request_error"
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content=error_payload(detail, error_type),
         )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    async def validation_exception_handler(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
         message = "; ".join(
             f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}"
             for err in exc.errors()
@@ -193,21 +198,25 @@ def create_app(
         )
 
     @app.exception_handler(ValueError)
-    async def value_error_handler(_request: Request, exc: ValueError):
+    async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
         return JSONResponse(
             status_code=400,
             content=error_payload(str(exc), "invalid_request_error"),
         )
 
     @app.exception_handler(RuntimeError)
-    async def runtime_exception_handler(_request: Request, exc: RuntimeError):
+    async def runtime_exception_handler(
+        _request: Request, exc: RuntimeError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=503,
             content=error_payload(str(exc), "service_unavailable"),
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(_request: Request, exc: Exception):
+    async def unhandled_exception_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
         logger.exception("Unhandled exception")
         return JSONResponse(
             status_code=500,
@@ -215,7 +224,7 @@ def create_app(
         )
 
     @app.get("/", response_class=JSONResponse)
-    async def index():
+    async def index() -> dict[str, Any]:
         return {
             "name": app.title,
             "version": "2.0.0",
@@ -229,17 +238,17 @@ def create_app(
         }
 
     @app.get("/health", response_class=JSONResponse)
-    async def health():
+    async def health() -> dict[str, Any]:
         svc: TTSService = app.state.tts_service
         return svc.health()
 
     @app.get("/v1/models", response_class=JSONResponse)
-    async def list_models():
+    async def list_models() -> dict[str, Any]:
         svc: TTSService = app.state.tts_service
         return {"object": "list", "data": svc.list_models()}
 
     @app.get("/v1/voices", response_class=JSONResponse)
-    async def list_voices():
+    async def list_voices() -> dict[str, Any]:
         svc: TTSService = app.state.tts_service
         svc.ensure_ready()
         return {
@@ -249,7 +258,7 @@ def create_app(
         }
 
     @app.post("/v1/voices/reload", response_class=JSONResponse)
-    async def reload_voices():
+    async def reload_voices() -> dict[str, Any]:
         svc: TTSService = app.state.tts_service
         svc.ensure_ready()
         svc.reload_custom_voices()
@@ -260,27 +269,30 @@ def create_app(
         }
 
     @app.post("/v1/audio/speech")
-    async def create_speech(payload: SpeechRequest):
+    async def create_speech(payload: SpeechRequest) -> Response:
         svc: TTSService = app.state.tts_service
         text = payload.input.strip()
         if not text:
             raise HTTPException(status_code=400, detail="`input` cannot be blank")
 
         svc.ensure_model(payload.model)
-        voice = svc.resolve_voice(payload.voice)
+        voice_input = (
+            payload.voice.model_dump()
+            if isinstance(payload.voice, VoiceReference)
+            else payload.voice
+        )
+        voice = svc.resolve_voice(voice_input)
 
-        response_format = payload.response_format
-        if response_format is None:
-            response_format = (
-                STREAMING_RESPONSE_FORMAT if payload.stream_format else "mp3"
-            )
+        response_format: str = payload.response_format or (
+            STREAMING_RESPONSE_FORMAT if payload.stream_format else "mp3"
+        )
 
         if payload.stream_format and response_format != STREAMING_RESPONSE_FORMAT:
             raise HTTPException(
                 status_code=400,
                 detail=(
                     "Streaming currently supports "
-                    f"`response_format=\"{STREAMING_RESPONSE_FORMAT}\"` only."
+                    f'`response_format="{STREAMING_RESPONSE_FORMAT}"` only.'
                 ),
             )
 
@@ -291,9 +303,9 @@ def create_app(
         # clients — which send `response_format="pcm"` and nothing else — sat
         # through the entire synthesis before their first byte. Measured
         # locally: ~1000ms to first chunk that way, ~25ms this way.
-        wants_audio_stream = (
-            payload.stream_format == "audio"
-            or (payload.stream_format is None and response_format == STREAMING_RESPONSE_FORMAT)
+        wants_audio_stream = payload.stream_format == "audio" or (
+            payload.stream_format is None
+            and response_format == STREAMING_RESPONSE_FORMAT
         )
 
         if wants_audio_stream:

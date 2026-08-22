@@ -18,9 +18,9 @@ classifiers = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "numpy>=2.3.5,<2.4",
+    "numpy>=2.5.2,<2.6",
     "fastapi>=0.141.1",
-    "uvicorn[standard]>=0.52.1",
+    "uvicorn[standard]>=0.52.4",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +29,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "black>=26.5.1",
     "flake8>=7.3.0",
-    "mypy>=2.3.0",
+    "mypy>=2.3.1",
 ]
 # Flash attention for CUDA (reduces VRAM usage)
 flash = [
@@ -44,6 +44,8 @@ cuda = [
     # the fallback (and still the source of the shared model plumbing).
     "faster-qwen3-tts>=0.3.2",
     "qwen-tts>=0.1.1",
+    # 2.11 is the newest complete matching CUDA 13 trio; newer torch wheels
+    # currently have no matching torchaudio release.
     "torch==2.11.0",
     "torchaudio==2.11.0",
     "torchvision==0.26.0",
@@ -59,7 +61,7 @@ Documentation = "https://github.com/kortexa-ai/tts.server#readme"
 "kortexa-tts" = "kortexa.tts.cli:main"
 
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel>=0.47.0"]
+requires = ["setuptools>=84.0.0", "wheel>=0.47.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -115,3 +117,13 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "faster_qwen3_tts.*",
+    "mlx_audio.*",
+    "qwen_tts.*",
+    "soundfile.*",
+    "torch.*",
+]
+ignore_missing_imports = true

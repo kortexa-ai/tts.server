@@ -10,6 +10,5 @@ sys.path.insert(0, str(project_root / "src"))
 
 from kortexa.tts.cli import main
 
-
 if __name__ == "__main__":
     main()

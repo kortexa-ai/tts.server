@@ -17,17 +17,22 @@ import io
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("voice_designer")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+)
 
 VOICES_DIR = Path(__file__).parent.parent / "voices"
 VOICEDESIGN_REPO = "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16"
@@ -37,9 +42,14 @@ PORT = 4010
 
 # ── Request/Response models ──────────────────────────────────────────
 
+
 class GenerateRequest(BaseModel):
-    instruct: str = Field(..., min_length=1, max_length=2048, description="Voice description prompt")
-    text: str = Field(..., min_length=1, max_length=2048, description="Sample text to speak")
+    instruct: str = Field(
+        ..., min_length=1, max_length=2048, description="Voice description prompt"
+    )
+    text: str = Field(
+        ..., min_length=1, max_length=2048, description="Sample text to speak"
+    )
 
 
 class GenerateResponse(BaseModel):
@@ -58,25 +68,13 @@ class VoiceEntry(BaseModel):
     wav_path: str
 
 
-# ── App ──────────────────────────────────────────────────────────────
-
-app = FastAPI(title="Voice Designer", description="Generate and save custom TTS voices")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Global model reference, loaded at startup
-_model = None
-_mx = None
-_audio_write = None
+_model: Any = None
+_mx: Any = None
+_audio_write: Any = None
 
 
-def _load_models():
+def _load_models() -> None:
     global _model, _mx, _audio_write
 
     import mlx.core as mx
@@ -91,19 +89,40 @@ def _load_models():
     logger.info("VoiceDesign model loaded (sample_rate=%d)", SAMPLE_RATE)
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
     _load_models()
+    yield
+
+
+# ── App ──────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="Voice Designer",
+    description="Generate and save custom TTS voices",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok" if _model is not None else "error", "model": VOICEDESIGN_REPO}
+async def health() -> dict[str, str]:
+    return {
+        "status": "ok" if _model is not None else "error",
+        "model": VOICEDESIGN_REPO,
+    }
 
 
 @app.post("/generate", response_model=GenerateResponse)
-async def generate(req: GenerateRequest):
+async def generate(req: GenerateRequest) -> GenerateResponse:
     if _model is None:
         raise HTTPException(503, "Model not loaded")
 
@@ -111,12 +130,14 @@ async def generate(req: GenerateRequest):
     gen_id = uuid.uuid4().hex[:12]
 
     # VoiceDesign model uses generate_voice_design()
-    results = list(_model.generate_voice_design(
-        text=req.text,
-        instruct=req.instruct,
-        language="auto",
-        stream=False,
-    ))
+    results = list(
+        _model.generate_voice_design(
+            text=req.text,
+            instruct=req.instruct,
+            language="auto",
+            stream=False,
+        )
+    )
 
     if not results:
         raise HTTPException(500, "Generation produced no results")
@@ -142,13 +163,18 @@ async def generate(req: GenerateRequest):
     audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
 
     elapsed = time.perf_counter() - start
-    logger.info("Generated voice sample %s in %.2fs (%.1fs audio)", gen_id, elapsed, len(audio_np) / SAMPLE_RATE)
+    logger.info(
+        "Generated voice sample %s in %.2fs (%.1fs audio)",
+        gen_id,
+        elapsed,
+        len(audio_np) / SAMPLE_RATE,
+    )
 
     return GenerateResponse(id=gen_id, audio_b64=audio_b64, sample_rate=SAMPLE_RATE)
 
 
 @app.post("/save")
-async def save_voice(req: SaveRequest):
+async def save_voice(req: SaveRequest) -> dict[str, str | int]:
     wav_path = VOICES_DIR / f"{req.name}.wav"
 
     # Decode and save WAV
@@ -164,7 +190,7 @@ async def save_voice(req: SaveRequest):
 
 
 @app.get("/voices")
-async def list_voices():
+async def list_voices() -> dict[str, list[VoiceEntry]]:
     voices = []
     for wav in sorted(VOICES_DIR.glob("*.wav")):
         voices.append(VoiceEntry(name=wav.stem, wav_path=str(wav)))
@@ -172,7 +198,7 @@ async def list_voices():
 
 
 @app.get("/voices/{name}/audio")
-async def get_voice_audio(name: str):
+async def get_voice_audio(name: str) -> FileResponse:
     wav_path = VOICES_DIR / f"{name}.wav"
     if not wav_path.exists():
         raise HTTPException(404, f"Voice '{name}' not found")
@@ -180,7 +206,7 @@ async def get_voice_audio(name: str):
 
 
 @app.delete("/voices/{name}")
-async def delete_voice(name: str):
+async def delete_voice(name: str) -> dict[str, str]:
     wav_path = VOICES_DIR / f"{name}.wav"
     if not wav_path.exists():
         raise HTTPException(404, f"Voice '{name}' not found")
