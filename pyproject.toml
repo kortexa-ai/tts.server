@@ -121,6 +121,7 @@ disallow_untyped_defs = true
 [[tool.mypy.overrides]]
 module = [
     "faster_qwen3_tts.*",
+    "mlx.*",
     "mlx_audio.*",
     "qwen_tts.*",
     "soundfile.*",
