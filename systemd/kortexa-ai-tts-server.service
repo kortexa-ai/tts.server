@@ -17,7 +17,9 @@ WorkingDirectory=/home/francip/src/tts.server
 Environment=PATH=/home/francip/.local/bin:/home/francip/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/home/francip/src/tts.server
+Environment=CUDA_VISIBLE_DEVICES=GPU-afb49bc6-cd89-6584-99cc-a0f03592a010
 
+ExecStartPre=/usr/bin/nvidia-smi --id=GPU-afb49bc6-cd89-6584-99cc-a0f03592a010 --query-gpu=uuid --format=csv,noheader
 ExecStart=/home/francip/src/tts.server/run.sh
 
 Restart=always
