@@ -9,10 +9,9 @@ import platform
 import subprocess
 import threading
 import time
-from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generator, Iterator, Optional, cast
+from typing import Any, Iterator, Optional, cast
 
 import numpy as np
 
@@ -505,9 +504,9 @@ class TTSService:
             self.model = FasterQwen3TTS.from_pretrained(self.model_repo, device=device)
             self.sample_rate = 24_000
 
-            # Capture the CUDA graphs now so the first caller does not pay
-            # their setup cost. That first request is often someone testing
-            # whether the voice assistant works at all.
+            # Capture the CUDA graphs now. Skipping this costs the first caller
+            # ~2.5s instead of 0.15s, which on a voice assistant is the one
+            # request most likely to be someone testing whether it works.
             try:
                 self.model.warmup()
                 logger.info("faster-qwen3-tts CUDA graphs captured")
@@ -522,7 +521,6 @@ class TTSService:
                 self.supported_languages = languages
 
             self._load_custom_voices()
-            self._warmup_faster_voices()
             self.load_error = None
             logger.info(
                 "faster-qwen3-tts loaded (voices=%d, custom=%d)",
@@ -534,32 +532,6 @@ class TTSService:
             logger.exception("Failed to load faster-qwen3-tts")
             self.model = None
             return False
-
-    def _warmup_faster_voices(self) -> None:
-        """Prepare lazy voice prompts and the first PCM decode before serving."""
-        for voice in self.supported_voices:
-            if not voice.wav_path:
-                continue
-            started = time.perf_counter()
-            try:
-                # Use the public streaming path so the SDK caches the same
-                # reference prompt used by requests. One chunk is enough;
-                # discard it in RAM and release the suspended generator.
-                with closing(
-                    self._stream_faster(text="The voice is ready.", voice=voice)
-                ) as stream:
-                    if not len(next(stream)):
-                        raise ValueError("Voice warmup returned empty audio")
-            except Exception:
-                # A bad reference must not disable the other registered voices
-                # or force a second model load via the fallback backend.
-                logger.exception("Voice '%s' warmup failed", voice.id)
-            else:
-                logger.info(
-                    "Voice '%s' first PCM warmed in %.3fs",
-                    voice.id,
-                    time.perf_counter() - started,
-                )
 
     def _clone_kwargs(self, voice: VoiceInfo) -> dict:
         if not voice.wav_path:
@@ -585,14 +557,12 @@ class TTSService:
         text: str,
         voice: VoiceInfo,
         chunk_size: int = 8,
-    ) -> Generator[np.ndarray, None, None]:
-        stream = self.model.generate_voice_clone_streaming(
+    ) -> Iterator[np.ndarray]:
+        for chunk in self.model.generate_voice_clone_streaming(
             text=text, chunk_size=chunk_size, **self._clone_kwargs(voice)
-        )
-        with closing(stream):
-            for chunk in stream:
-                audio = chunk[0] if isinstance(chunk, tuple) else chunk
-                yield self._to_numpy(audio)
+        ):
+            audio = chunk[0] if isinstance(chunk, tuple) else chunk
+            yield self._to_numpy(audio)
 
     def _synthesize_cuda(
         self,
