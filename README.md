@@ -151,6 +151,11 @@ Notes:
 - Streaming currently supports `response_format="pcm"` only
 - Empty or whitespace-only `input` is rejected with `400`
 
+Whole-file encoding runs in a worker, so an MP3 or other container request
+does not block the HTTP event loop while PCM streams are being delivered.
+Model inference is still serialized; this does not remove GPU queueing or
+change the generated audio, voice selection, or streaming chunk format.
+
 #### Non-streaming example
 
 ```bash

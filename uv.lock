@@ -706,6 +706,7 @@ cuda = [
 dev = [
     { name = "black" },
     { name = "flake8" },
+    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -724,6 +725,7 @@ requires-dist = [
     { name = "faster-qwen3-tts", marker = "extra == 'cuda'", specifier = ">=0.3.2" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=7.3.0" },
     { name = "flash-attn", marker = "extra == 'flash'", specifier = ">=2.8.3.post1" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1,<1" },
     { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", git = "https://github.com/Blaizzy/mlx-audio.git" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.3.1" },
     { name = "numpy", specifier = ">=2.5.2,<2.6" },

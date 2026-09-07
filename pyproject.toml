@@ -25,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "httpx>=0.28.1,<1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "black>=26.5.1",

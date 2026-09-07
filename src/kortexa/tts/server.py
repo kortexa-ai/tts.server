@@ -371,7 +371,9 @@ def create_app(
                     speed=payload.speed,
                 ),
             )
-        body = svc.encode_audio(audio, response_format)
+        # Whole-file codecs can wait for ffmpeg or compress a long waveform.
+        # Keep that CPU work off the HTTP loop so PCM streams keep flowing.
+        body = await asyncio.to_thread(svc.encode_audio, audio, response_format)
         return Response(
             content=body,
             media_type=svc.media_type_for_format(response_format),
