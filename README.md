@@ -28,6 +28,14 @@ OpenAPI docs are available at:
 
 Both platforms expose the same OpenAI-compatible API. Custom voices from `voices/*.wav` work on both (MLX uses ref_audio injection, CUDA uses x-vector voice cloning).
 
+The faster CUDA backend prepares each reference-backed voice during startup,
+after graph capture. It generates and discards one streaming PCM chunk per
+voice, serially, to prepare the lazy speaker prompt and decoder before the
+server accepts requests. This moves first-use work into startup; it does not
+change streaming chunk sizes or play or save the warmup audio. A failed voice
+warmup is logged without removing that voice or disabling the others. Voices
+added with the reload endpoint remain lazy until first use or the next startup.
+
 ## Setup
 
 Run:
