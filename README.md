@@ -167,6 +167,12 @@ does not block the HTTP event loop while PCM streams are being delivered.
 Model inference is still serialized; this does not remove GPU queueing or
 change the generated audio, voice selection, or streaming chunk format.
 
+Disconnected whole-file callers are removed from the inference queue. If model
+work has already started, the service retains its inference slot until that
+worker finishes, then discards the unused result. Shutdown waits for owned
+inference before unloading the model. This avoids running abandoned requests
+ahead of live speech without attempting to interrupt CUDA work unsafely.
+
 #### Non-streaming example
 
 ```bash

@@ -4,7 +4,8 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Iterable, Iterator, Literal
+from threading import Event
+from typing import Any, AsyncIterator, Callable, Iterable, Iterator, Literal
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
@@ -33,7 +34,7 @@ def _next_stream_item(iterator: Iterator[bytes | str]) -> bytes | str | object:
 async def _disconnect_safe_stream(
     content: Iterable[bytes | str],
     inference_semaphore: asyncio.Semaphore,
-    background_tasks: set[asyncio.Task[None]],
+    background_tasks: set[asyncio.Task[Any]],
 ) -> AsyncIterator[bytes | str]:
     """Keep model iteration owned until a disconnected response can close it.
 
@@ -102,6 +103,69 @@ async def _disconnect_safe_stream(
         abandoned.set()
 
 
+async def _disconnect_safe_inference(
+    request: Request,
+    synthesize: Callable[[], tuple[Any, int]],
+    inference_semaphore: asyncio.Semaphore,
+    background_tasks: set[asyncio.Task[Any]],
+) -> tuple[Any, int]:
+    """Cancel queued work, but keep running model work owned after its caller leaves."""
+    started = False
+    abandoned = Event()
+
+    async def watch_disconnect() -> None:
+        # FastAPI has consumed the request body before the endpoint calls us.
+        while (await request.receive())["type"] != "http.disconnect":
+            pass
+        abandoned.set()
+
+    def synthesize_if_current() -> tuple[Any, int]:
+        # Admission can precede worker availability. Check again on the worker
+        # so a request abandoned in the executor queue never starts inference.
+        if abandoned.is_set():
+            raise asyncio.CancelledError
+        return synthesize()
+
+    async def produce() -> tuple[Any, int]:
+        nonlocal started
+        async with inference_semaphore:
+            if abandoned.is_set():
+                raise asyncio.CancelledError
+            # No suspension between admission and marking ownership. Only queued
+            # tasks may be cancelled: cancelling to_thread does not stop inference.
+            started = True
+            return await asyncio.to_thread(synthesize_if_current)
+
+    def settled(task: asyncio.Task[tuple[Any, int]]) -> None:
+        background_tasks.discard(task)
+        if not task.cancelled():
+            error = task.exception()
+            if error is not None and abandoned.is_set():
+                logger.warning(
+                    "TTS inference failed after its request ended", exc_info=error
+                )
+
+    disconnected = asyncio.create_task(watch_disconnect(), name="tts-disconnect")
+    producer = asyncio.create_task(produce(), name="tts-inference")
+    background_tasks.add(producer)
+    producer.add_done_callback(settled)
+    try:
+        done, _ = await asyncio.wait(
+            (producer, disconnected),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if disconnected in done:
+            await disconnected
+            raise HTTPException(status_code=499, detail="Client disconnected")
+        return producer.result()
+    finally:
+        abandoned.set()
+        if not started:
+            producer.cancel()
+        disconnected.cancel()
+        await asyncio.gather(disconnected, return_exceptions=True)
+
+
 class VoiceReference(BaseModel):
     id: str
 
@@ -152,7 +216,7 @@ def create_app(
     # Async semaphore gates access to inference so requests queue in the
     # event loop instead of blocking thread-pool workers on the inference lock.
     inference_semaphore = asyncio.Semaphore(1)
-    inference_tasks: set[asyncio.Task[None]] = set()
+    inference_tasks: set[asyncio.Task[Any]] = set()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -161,8 +225,17 @@ def create_app(
         app.state.tts_service = tts_service
         app.state.inference_semaphore = inference_semaphore
         app.state.inference_tasks = inference_tasks
-        yield
-        tts_service.unload_model()
+        try:
+            yield
+        finally:
+            # Disconnected handlers can leave service-owned inference finishing
+            # off-loop. The model must outlive those workers and stream iterators.
+            while inference_tasks:
+                await asyncio.gather(
+                    *(asyncio.shield(task) for task in inference_tasks),
+                    return_exceptions=True,
+                )
+            tts_service.unload_model()
 
     app = FastAPI(
         title="Kortexa TTS Server",
@@ -278,7 +351,7 @@ def create_app(
             "custom_count": sum(1 for v in svc.supported_voices if v.is_custom),
         }
 
-    async def _create_speech(payload: SpeechRequest) -> Response:
+    async def _create_speech(payload: SpeechRequest, request: Request) -> Response:
         svc: TTSService = app.state.tts_service
         text = payload.input.strip()
         if not text:
@@ -361,16 +434,17 @@ def create_app(
                 },
             )
 
-        async with app.state.inference_semaphore:
-            audio, sample_rate = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: svc.synthesize(
-                    text=text,
-                    voice=voice,
-                    instructions=payload.instructions or "",
-                    speed=payload.speed,
-                ),
-            )
+        audio, sample_rate = await _disconnect_safe_inference(
+            request,
+            lambda: svc.synthesize(
+                text=text,
+                voice=voice,
+                instructions=payload.instructions or "",
+                speed=payload.speed,
+            ),
+            app.state.inference_semaphore,
+            app.state.inference_tasks,
+        )
         # Whole-file codecs can wait for ffmpeg or compress a long waveform.
         # Keep that CPU work off the HTTP loop so PCM streams keep flowing.
         body = await asyncio.to_thread(svc.encode_audio, audio, response_format)
@@ -386,8 +460,8 @@ def create_app(
         )
 
     @app.post("/v1/audio/speech")
-    async def create_speech(payload: SpeechRequest) -> Response:
-        return await _create_speech(payload)
+    async def create_speech(payload: SpeechRequest, request: Request) -> Response:
+        return await _create_speech(payload, request)
 
     def facade_payload(payload: GenerateRequest, *, streaming: bool) -> SpeechRequest:
         svc: TTSService = app.state.tts_service
@@ -409,9 +483,9 @@ def create_app(
         )
 
     @app.post("/generate")
-    async def generate(payload: GenerateRequest) -> Response:
+    async def generate(payload: GenerateRequest, request: Request) -> Response:
         """Simple media facade: prompt in, MP3 out."""
-        return await _create_speech(facade_payload(payload, streaming=False))
+        return await _create_speech(facade_payload(payload, streaming=False), request)
 
     @app.websocket("/ws")
     async def websocket_voice(websocket: WebSocket) -> None:
