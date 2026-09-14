@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
+import threading
+from contextlib import aclosing, asynccontextmanager
 from threading import Event
 from typing import Any, AsyncIterator, Callable, Iterable, Iterator, Literal
 
@@ -43,7 +44,8 @@ async def _disconnect_safe_stream(
     queue: asyncio.Queue[bytes | str | Exception | object] = asyncio.Queue(
         maxsize=_STREAM_QUEUE_SIZE,
     )
-    abandoned = asyncio.Event()
+    abandoned = threading.Event()
+    loop = asyncio.get_running_loop()
 
     async def offer(item: bytes | str | Exception | object) -> bool:
         while not abandoned.is_set():
@@ -57,29 +59,41 @@ async def _disconnect_safe_stream(
                 continue
         return False
 
-    async def produce() -> None:
-        iterator = iter(content)
+    def produce_sync() -> None:
+        # A model generator can hold thread-local inference contexts across
+        # yields. Iterate and close it on one worker, rather than dispatching
+        # each next() to a potentially different thread-pool worker.
+        def send(item: bytes | str | Exception | object) -> bool:
+            return asyncio.run_coroutine_threadsafe(offer(item), loop).result()
+
         try:
-            async with inference_semaphore:
+            iterator = iter(content)
+            try:
                 while not abandoned.is_set():
-                    item = await asyncio.to_thread(_next_stream_item, iterator)
+                    item = _next_stream_item(iterator)
                     if item is _STREAM_COMPLETE:
                         break
-                    if not await offer(item):
+                    if not send(item):
                         break
+            finally:
+                close = getattr(iterator, "close", None)
+                if close is not None:
+                    close()
         except Exception as exc:
             if not abandoned.is_set():
-                await offer(exc)
+                send(exc)
             else:
                 logger.warning(
                     "TTS inference failed while cleaning up a disconnected stream",
                     exc_info=True,
                 )
         finally:
-            close = getattr(iterator, "close", None)
-            if close is not None:
-                await asyncio.to_thread(close)
-            await offer(_STREAM_COMPLETE)
+            send(_STREAM_COMPLETE)
+
+    async def produce() -> None:
+        async with inference_semaphore:
+            if not abandoned.is_set():
+                await asyncio.to_thread(produce_sync)
 
     producer = asyncio.create_task(produce(), name="tts-stream-producer")
     background_tasks.add(producer)
@@ -231,10 +245,15 @@ def create_app(
             # Disconnected handlers can leave service-owned inference finishing
             # off-loop. The model must outlive those workers and stream iterators.
             while inference_tasks:
+                draining = tuple(inference_tasks)
                 await asyncio.gather(
-                    *(asyncio.shield(task) for task in inference_tasks),
+                    *(asyncio.shield(task) for task in draining),
                     return_exceptions=True,
                 )
+                # Gathering already-completed tasks need not yield to their
+                # queued discard callbacks. Remove the drained snapshot here
+                # so shutdown cannot spin and starve those callbacks forever.
+                inference_tasks.difference_update(draining)
             tts_service.unload_model()
 
     app = FastAPI(
@@ -514,6 +533,9 @@ def create_app(
                     payload = GenerateRequest.model_validate(message)
                     request = facade_payload(payload, streaming=True)
                     svc: TTSService = app.state.tts_service
+                    svc.ensure_model(request.model)
+                    if not request.input.strip():
+                        raise ValueError("`prompt` cannot be blank")
                     voice_input = (
                         request.voice.model_dump()
                         if isinstance(request.voice, VoiceReference)
@@ -530,20 +552,23 @@ def create_app(
                             "voice": voice.id,
                         }
                     )
-                    async for chunk in _disconnect_safe_stream(
-                        svc.stream_audio_bytes(
-                            text=request.input.strip(),
-                            voice=voice,
-                            instructions=request.instructions or "",
-                            speed=request.speed,
-                            response_format="pcm",
-                        ),
-                        app.state.inference_semaphore,
-                        app.state.inference_tasks,
-                    ):
-                        if isinstance(chunk, str):
-                            chunk = chunk.encode("utf-8")
-                        await websocket.send_bytes(chunk)
+                    async with aclosing(
+                        _disconnect_safe_stream(
+                            svc.stream_audio_bytes(
+                                text=request.input.strip(),
+                                voice=voice,
+                                instructions=request.instructions or "",
+                                speed=request.speed,
+                                response_format="pcm",
+                            ),
+                            app.state.inference_semaphore,
+                            app.state.inference_tasks,
+                        )
+                    ) as chunks:
+                        async for chunk in chunks:
+                            if isinstance(chunk, str):
+                                chunk = chunk.encode("utf-8")
+                            await websocket.send_bytes(chunk)
                     await websocket.send_json({"type": "done"})
                 except (
                     HTTPException,

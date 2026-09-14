@@ -173,6 +173,12 @@ worker finishes, then discards the unused result. Shutdown waits for owned
 inference before unloading the model. This avoids running abandoned requests
 ahead of live speech without attempting to interrupt CUDA work unsafely.
 
+Streaming iterators advance and close on the same worker thread, retaining
+the inference slot until cleanup finishes. This preserves thread-local model
+contexts and prevents a disconnected stream from overlapping the next job.
+WebSocket generation rejects blank prompts and unsupported model IDs before
+emitting `start`, and closes its iterator when sending audio fails.
+
 #### Non-streaming example
 
 ```bash
