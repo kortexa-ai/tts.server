@@ -22,7 +22,7 @@ Environment=CUDA_VISIBLE_DEVICES=GPU-afb49bc6-cd89-6584-99cc-a0f03592a010
 ExecStartPre=/usr/bin/nvidia-smi --id=GPU-afb49bc6-cd89-6584-99cc-a0f03592a010 --query-gpu=uuid --format=csv,noheader
 ExecStart=/home/francip/src/tts.server/run.sh
 
-Restart=always
+Restart=no
 RestartSec=15
 
 TimeoutStopSec=60
